@@ -1,0 +1,134 @@
+{
+  "objects": [
+    {
+      "type": "Device",
+      "instance": 389019,
+      "name": "Rainbow",
+      "app": ["Object_Name", "Vendor_Name", "Vendor_Identifier", "Model_Name",
+              "Firmware_Revision", "Application_Software_Version", "Description"],
+      "enabled": ["Description"],
+      "writable": [],
+      "accepted": ["System_Status", "Protocol_Version", "Protocol_Revision",
+                   "Protocol_Services_Supported", "Protocol_Object_Types_Supported",
+                   "Object_List", "Max_APDU_Length_Accepted", "Segmentation_Supported",
+                   "APDU_Timeout", "Number_Of_APDU_Retries", "Device_Address_Binding",
+                   "Database_Revision"],
+      "note": "THE GATEWAY device. vendor 389 (Chipkin Automation Systems); instance configurable with --deviceID. The properties in 'accepted' are not served from a GetProperty callback because the stack itself is the source of truth for them - Protocol_Revision/Protocol_Version are stack build constants, Protocol_Services_Supported/Protocol_Object_Types_Supported are computed from the BACnetStack_SetServiceEnabled/AddObject calls this example already makes, Object_List and Device_Address_Binding are live stack-maintained tables, System_Status/Database_Revision/Max_APDU_Length_Accepted/Segmentation_Supported/APDU_Timeout/Number_Of_APDU_Retries are the stack's own configuration defaults for a device this example does not override"
+    },
+    {
+      "type": "Analog Input",
+      "instance": 1,
+      "name": "Bronze",
+      "app": ["Present_Value", "Object_Name", "Units", "Out_Of_Service"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Event_State"],
+      "note": "belongs to the GATEWAY device (389019). REAL, degrees Celsius; starts at 21.5; read-only; nudged by the up/down keys"
+    },
+    {
+      "type": "Binary Input",
+      "instance": 1,
+      "name": "Emerald",
+      "app": ["Present_Value", "Object_Name", "Polarity", "Out_Of_Service"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Event_State"],
+      "note": "belongs to the GATEWAY device (389019). starts inactive; read-only"
+    },
+    {
+      "type": "Multi-state Input",
+      "instance": 1,
+      "name": "Hot Pink",
+      "app": ["Present_Value", "Object_Name", "Number_Of_States", "Out_Of_Service", "State_Text"],
+      "enabled": ["State_Text"],
+      "writable": [],
+      "accepted": ["Event_State"],
+      "note": "belongs to the GATEWAY device (389019). state 1 of 3: On, Off, Auto; read-only"
+    },
+    {
+      "type": "Analog Output",
+      "instance": 1,
+      "name": "Chartreuse",
+      "app": ["Object_Name", "Units", "Out_Of_Service", "Relinquish_Default"],
+      "enabled": [],
+      "writable": ["Present_Value"],
+      "accepted": ["Event_State"],
+      "note": "belongs to the GATEWAY device (389019). REAL setpoint, default 20.0 C; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyReal/GetPropertyBool"
+    },
+    {
+      "type": "Binary Output",
+      "instance": 1,
+      "name": "Fuchsia",
+      "app": ["Object_Name", "Out_Of_Service", "Polarity", "Relinquish_Default"],
+      "enabled": [],
+      "writable": ["Present_Value"],
+      "accepted": ["Event_State"],
+      "note": "belongs to the GATEWAY device (389019). active/inactive, default inactive; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyEnumerated/GetPropertyBool"
+    },
+    {
+      "type": "Multi-state Output",
+      "instance": 1,
+      "name": "Indigo",
+      "app": ["Object_Name", "Out_Of_Service", "Number_Of_States", "Relinquish_Default"],
+      "enabled": [],
+      "writable": ["Present_Value"],
+      "accepted": ["Event_State"],
+      "note": "belongs to the GATEWAY device (389019). state 1 of 3, default state 1; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyUnsignedInteger/GetPropertyBool"
+    },
+    {
+      "type": "Network Port",
+      "instance": 1,
+      "name": "Vermilion",
+      "app": ["Object_Name", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Reliability"],
+      "note": "belongs to the GATEWAY device (389019). BACnet/IP, the device's one physical port - Network_Number is NOT configured here (0/unknown), unlike B-RTR's ports. Network_Type/Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments at start-up. Changes_Pending is likewise computed and answered natively. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal)."
+    },
+    {
+      "type": "Network Port",
+      "instance": 2,
+      "name": "(unnamed)",
+      "app": [],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Object_Name", "Reliability", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
+      "note": "belongs to the GATEWAY device (389019). Created internally and fully populated by BACnetStack_AddVirtualNetwork() for the virtual network (100) - this application registers no callback for it and never calls SetPropertyEnabled/SetPropertyWritable on it. Verified on the wire: Object_Name reads back the stack's generic default 'undefined' (no GetPropertyCharacterString case matches it); Network_Type reads back 'virtual' (7), confirming the stack itself created and typed this port correctly."
+    },
+    {
+      "type": "Device",
+      "instance": 389119,
+      "name": "Rainbow (virtual)",
+      "app": ["Object_Name", "Vendor_Name", "Vendor_Identifier", "Model_Name",
+              "Firmware_Revision", "Application_Software_Version", "Description"],
+      "enabled": ["Description"],
+      "writable": [],
+      "accepted": ["System_Status", "Protocol_Version", "Protocol_Revision",
+                   "Protocol_Services_Supported", "Protocol_Object_Types_Supported",
+                   "Object_List", "Max_APDU_Length_Accepted", "Segmentation_Supported",
+                   "APDU_Timeout", "Number_Of_APDU_Retries", "Device_Address_Binding",
+                   "Database_Revision"],
+      "note": "THE VIRTUAL device (GW-VN-B) - the thing this gateway represents. Added with BACnetStack_AddDeviceToVirtualNetwork after BACnetStack_AddVirtualNetwork(389019, network 100, ...); instance is the gateway's instance + 100 per docs/colour-table.md, fixed (not moved by --deviceID). It is a SEPARATE device with its own Object_List, reached through the gateway's one physical Network Port - it has no Network Port object of its own to list here. The 'accepted' properties are the stack's own defaults for this device exactly as for the gateway above."
+    },
+    {
+      "type": "Analog Input",
+      "instance": 1,
+      "name": "Bronze",
+      "app": ["Present_Value", "Object_Name", "Units", "Out_Of_Service"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Event_State"],
+      "note": "belongs to the VIRTUAL device (389119), NOT the gateway's Analog Input 1 above - same object type/instance/name by series convention, but a completely separate object under a separate device, proving GW-VN-B: the represented device has something to actually be read. REAL, degrees Celsius; starts at 19.0; read-only; independent of the gateway's own Analog Input 1"
+    },
+    {
+      "type": "Network Port",
+      "instance": 1,
+      "name": "(unnamed)",
+      "app": [],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Object_Name", "Reliability", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
+      "note": "belongs to the VIRTUAL device (389119). Created internally and fully populated by BACnetStack_AddDeviceToVirtualNetwork() - not the gateway's own Network Port 2 above, a separate object under the virtual device. This application registers no callback for it. Verified on the wire: Object_Name reads back the stack's generic default 'undefined'; Network_Type reads back 'virtual' (7)."
+    }
+  ]
+}
