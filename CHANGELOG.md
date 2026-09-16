@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Restructured the documentation to match the series' README/TUTORIAL/PICS
+  split: `README.md` is now scoped to this example only (series framing,
+  "What the profile requires" prose, "Before you ship", "Get the code",
+  "Link mode", "Troubleshooting", and "Objects and properties" removed or
+  moved out - see below), 748 lines down to under 460.
+- Added `TUTORIAL.md`: extending the example (including a new
+  add-a-commandable-output recipe and a dedicated write-up of the
+  dispatch-on-`deviceInstance`-first pitfall unique to a two-device gateway),
+  what each object type needs served, a "who serves what" breakdown for the
+  representative commandable Analog Output, reviewing your device, and
+  Troubleshooting (carried over verbatim from the old README).
+- Added `docs/PICS.md`: a full ANSI/ASHRAE 135 Annex A conformance statement
+  covering BOTH devices, with the generated objects-and-properties tables
+  moved out of `README.md`.
+- `docs/objects.json`: split the stack-computed "stack" properties
+  (`Object_List`, `Protocol_Version`, `Protocol_Revision`,
+  `Protocol_Services_Supported`, `Protocol_Object_Types_Supported`,
+  `Device_Address_Binding`) out of "accepted" for both Device entries
+  (389019 and 389119), matching the rest of the series; regenerating now
+  produces zero ⚠ rows.
+- `main.cpp`: absorbed the README's "Before you ship" table into per-constant
+  comments in the `CHANGE ALL OF THIS BEFORE YOU SHIP` block, including the
+  `Object_Name` uniqueness warning on both `DEVICE_NAME` and
+  `VIRTUAL_DEVICE_NAME`.
+- **Build switched from a prebuilt STATIC library to the adapter's default
+  SOURCE mode**, matching the rest of the series: `cmake -B build -S .` /
+  `cmake --build build --config Release` with no link-mode flag and no
+  `tools/build-stack-static.sh` step. `CMakeLists.txt`,
+  `.github/workflows/release.yml` (link-mode assertion, metrics
+  `"link_mode"`, matrix `lib:` entries and the static-library cache/build
+  steps removed; `TUTORIAL.md`/`docs/PICS.md` added to the packaged
+  artifact) and `AGENTS.md` updated to match. The Footprint table's numbers
+  are still from the v1.0.0 STATIC-linked release; the next release
+  refreshes them under the SOURCE build.
+
 ## [1.0.0] - 2026-09-15
 
 ### Added
