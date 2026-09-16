@@ -112,7 +112,8 @@ static const char* APP_VERSION = "1.0.0";
 
 // The GATEWAY device instance. BACnet requires this to be configurable, so it
 // defaults to 389019 (docs/colour-table.md) and can be overridden on the
-// command line with --deviceID.
+// command line with --deviceID. Keep it configurable in your product: it
+// must be unique across the internetwork.
 static uint32_t g_deviceInstance = 389019;
 
 // The VIRTUAL device instance - the gateway's number + 100, per
@@ -120,7 +121,12 @@ static uint32_t g_deviceInstance = 389019;
 // gateway's number + 100"). NOT overridden by --deviceID: --deviceID only
 // renumbers the gateway itself, matching every other example's --deviceID
 // contract (it configures THIS device, not something behind it).
+// CHANGE BEFORE YOU SHIP: must also be unique across the whole BACnet
+// internetwork, exactly like the gateway's own instance - two devices with
+// colliding instances is a spec violation regardless of which one they are.
 static const uint32_t VIRTUAL_DEVICE_INSTANCE = 389119;
+// The virtual device's Object_Name. CHANGE BEFORE YOU SHIP, and see the
+// warning on DEVICE_NAME below - it applies here too.
 static const char* VIRTUAL_DEVICE_NAME = "Rainbow (virtual)";
 
 // The virtual network the virtual device lives on, and the Network Port
@@ -128,6 +134,9 @@ static const char* VIRTUAL_DEVICE_NAME = "Rainbow (virtual)";
 // a real, wire-configured BACnet/IP network - see BACnetStack_AddVirtualNetwork's
 // doc comment. 100 avoids the physical Network Port's own (unconfigured,
 // quality UNKNOWN, effectively 0) network number.
+// CHANGE BEFORE YOU SHIP: must be unique among every network number (real or
+// virtual) on the internetwork, same as a device instance must be unique
+// among device instances.
 static const uint16_t VIRTUAL_NETWORK_NUMBER = 100;
 static const uint32_t VIRTUAL_NETWORK_PORT_INSTANCE = 2; // "Network Port 1" (Vermilion) is 1
 
@@ -144,12 +153,30 @@ static const uint32_t VIRTUAL_NETWORK_PORT_INSTANCE = 2; // "Network Port 1" (Ve
 // by ASHRAE - request one (free) at https://bacnet.org/assigned-vendor-ids/.
 // Update VENDOR_NAME below to match. The virtual device shares the same vendor.
 static const uint32_t VENDOR_IDENTIFIER = 389;
+
+// The GATEWAY's Object_Name.
+//
+// THIS IS THE ONE THAT WILL BITE YOU. Object_Name must be unique across the
+// whole BACnet internetwork, and here it is a COMPILE-TIME constant. The
+// device instance is runtime-configurable via --deviceID, so it is easy to
+// ship two units, configure their instances correctly, and still have BOTH
+// announce Object_Name "Rainbow" - a spec violation, and a hard BTL failure.
+// The SAME is true of VIRTUAL_DEVICE_NAME below: it is fixed at compile time
+// too, and every unit's virtual device would collide right along with the
+// gateway's. In a real product BOTH names must be per-unit configurable:
+// derive them from a serial number, DIP switches, a config file, or add a
+// --deviceName argument.
 static const char* DEVICE_NAME = "Rainbow";
+
+// The GATEWAY's Description. Change it to what YOUR device actually is; this
+// string describes this tutorial.
 static const char* DEVICE_DESCRIPTION =
     "Chipkin CAS BACnet Stack example - B-GW (Gateway) profile. Demonstrates "
     "DS-RP-B + DS-WP-B + DM-DDB-B + DM-DOB-B + DM-DCC-B + GW-VN-B: a gateway "
     "device that represents one virtual BACnet device on a virtual network "
     "behind it.";
+// The VIRTUAL device's Description. Change it to what your gatewayed device
+// actually is.
 static const char* VIRTUAL_DEVICE_DESCRIPTION =
     "Chipkin CAS BACnet Stack example - B-GW (Gateway) profile. A VIRTUAL "
     "BACnet device (GW-VN-B), modelled behind Device 389019 on virtual "
@@ -158,6 +185,10 @@ static const char* VIRTUAL_DEVICE_DESCRIPTION =
 // Device identity strings (read by clients, and used to populate I-Am). The
 // virtual device answers with its own Model_Name so a client can tell the two
 // devices apart in a discovery tool even though they share one IP/UDP port.
+//   VENDOR_NAME        - your company name; must match VENDOR_IDENTIFIER above.
+//   MODEL_NAME          - your GATEWAY's model designation, read by a building
+//                          operator to identify it in a discovery tool.
+//   VIRTUAL_MODEL_NAME  - the model designation for the device you gateway.
 static const char* VENDOR_NAME = "Chipkin Automation Systems";
 static const char* MODEL_NAME = "CAS BACnet Stack Example - B-GW";
 static const char* VIRTUAL_MODEL_NAME = "CAS BACnet Stack Example - B-GW (virtual device)";
@@ -167,6 +198,10 @@ static const char* VIRTUAL_MODEL_NAME = "CAS BACnet Stack Example - B-GW (virtua
 // accepts the command only if it matches. Set to NULL/empty to accept any request
 // (no password required). Change this to your device's secret before shipping.
 static const char* DCC_PASSWORD = "";  // "" = no password required
+
+// FIRMWARE_REVISION / APPLICATION_SOFTWARE_VERSION - your real versions,
+// shared by both devices. Wire them to your build rather than hard-coding a
+// number that will go stale.
 static const char* FIRMWARE_REVISION = "1.0.0";
 static const char* APPLICATION_SOFTWARE_VERSION = "1.0.0";
 
