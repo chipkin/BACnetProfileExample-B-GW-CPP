@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Application_Software_Version` (12) and `Firmware_Revision` (44) were
+  hardcoded and stale on both devices (the gateway, Device 389019, and the
+  virtual device it represents, Device 389119)** - both reported the literal
+  `"1.0.0"` via separate `APPLICATION_SOFTWARE_VERSION`/`FIRMWARE_REVISION`
+  constants nobody updated across releases, same pattern already fixed in
+  B-SCHUB-CPP. Fixed: `Application_Software_Version` now reads `APP_VERSION`
+  directly (one source of truth, can't drift from `--version`'s own banner
+  again). `Firmware_Revision` is now built at runtime from the CAS BACnet
+  Stack's own `BACnetStack_GetAPIMajorVersion()`/`GetAPIMinorVersion()`/
+  `GetAPIPatchVersion()`/`GetAPIBuildVersion()` (the same 4 calls
+  `common/CASExampleHelper.cpp`'s `PrintVersion()` already uses for the
+  startup banner), populated once right after `LoadBACnetFunctions()`
+  succeeds, into a new `g_firmwareRevision`. The old separate constants are
+  removed entirely. Verified with a real ReadProperty against the running
+  device (Device 389019): `Application_Software_Version = "1.0.1"`,
+  `Firmware_Revision = "6.0.21.0"` - both now match the actual running build
+  instead of a stale hardcoded string. (The virtual device, 389119, shares
+  the same fixed code path but was not separately confirmed over the
+  network - it sits behind the gateway's virtual network and a plain
+  unicast ReadProperty to it returned `unknown-object`, which needs
+  BACnet routing/NPDU addressing to reach, not a code issue.)
+
 ### Changed
 
 - Restructured the documentation to match the series' README/TUTORIAL/PICS

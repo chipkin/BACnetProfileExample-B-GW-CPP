@@ -95,6 +95,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <string>
 
 #if defined(_WIN32)
 #include <windows.h> // Sleep()
@@ -108,7 +109,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-GW (Gateway) Example - C++";
-static const char* APP_VERSION = "1.0.0";
+static const char* APP_VERSION = "1.0.1";
 
 // The GATEWAY device instance. BACnet requires this to be configurable, so it
 // defaults to 389019 (docs/colour-table.md) and can be overridden on the
@@ -199,11 +200,19 @@ static const char* VIRTUAL_MODEL_NAME = "CAS BACnet Stack Example - B-GW (virtua
 // (no password required). Change this to your device's secret before shipping.
 static const char* DCC_PASSWORD = "";  // "" = no password required
 
-// FIRMWARE_REVISION / APPLICATION_SOFTWARE_VERSION - your real versions,
-// shared by both devices. Wire them to your build rather than hard-coding a
-// number that will go stale.
-static const char* FIRMWARE_REVISION = "1.0.0";
-static const char* APPLICATION_SOFTWARE_VERSION = "1.0.0";
+// Application_Software_Version (12) is just APP_VERSION - one source of
+// truth, shared by both devices, so it can never drift from what
+// --version/the startup banner prints.
+//
+// Firmware_Revision (44) is meant to name the underlying platform/stack,
+// not this example's own version - built at runtime from the CAS BACnet
+// Stack's own BACnetStack_GetAPIMajorVersion()/etc. (the same 4 calls
+// common/CASExampleHelper.cpp's PrintVersion() already uses for the
+// startup banner's "CAS BACnet Stack version: X.Y.Z.W" line), so it can
+// never go stale either - see g_firmwareRevision below, populated once
+// right after LoadBACnetFunctions() succeeds (those functions are what
+// the version getters themselves are, so they must be loaded first).
+static std::string g_firmwareRevision;
 
 // The GATEWAY's sensor objects (all instance 1) and their colour names.
 static const uint32_t ANALOG_INPUT_INSTANCE = 1;       // "Bronze"
@@ -612,9 +621,9 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
                 case PROPERTY_IDENTIFIER_MODEL_NAME:
                     return ReturnCharacterString(VIRTUAL_MODEL_NAME, value, valueElementCount, maxElementCount, encodingType);
                 case PROPERTY_IDENTIFIER_FIRMWARE_REVISION:
-                    return ReturnCharacterString(FIRMWARE_REVISION, value, valueElementCount, maxElementCount, encodingType);
+                    return ReturnCharacterString(g_firmwareRevision.c_str(), value, valueElementCount, maxElementCount, encodingType);
                 case PROPERTY_IDENTIFIER_APPLICATION_SOFTWARE_VERSION:
-                    return ReturnCharacterString(APPLICATION_SOFTWARE_VERSION, value, valueElementCount, maxElementCount, encodingType);
+                    return ReturnCharacterString(APP_VERSION, value, valueElementCount, maxElementCount, encodingType);
                 default:
                     break;
             }
@@ -675,9 +684,9 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
             case PROPERTY_IDENTIFIER_MODEL_NAME:
                 return ReturnCharacterString(MODEL_NAME, value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_FIRMWARE_REVISION:
-                return ReturnCharacterString(FIRMWARE_REVISION, value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(g_firmwareRevision.c_str(), value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_APPLICATION_SOFTWARE_VERSION:
-                return ReturnCharacterString(APPLICATION_SOFTWARE_VERSION, value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(APP_VERSION, value, valueElementCount, maxElementCount, encodingType);
             default:
                 break;
         }
@@ -847,6 +856,19 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Error: failed to load the CAS BACnet Stack: %s\n",
                 CASBACnetStackAdapter_LastError());
         return 1;
+    }
+
+    // g_firmwareRevision (Device object property 44) - see its own doc
+    // comment above for why this is the STACK's version, not this example's
+    // own (that's Application_Software_Version/APP_VERSION instead). Must
+    // happen after LoadBACnetFunctions() (these getters ARE some of the
+    // functions it loads) and before the Device object is ever readable.
+    {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
+                 BACnetStack_GetAPIMajorVersion(), BACnetStack_GetAPIMinorVersion(),
+                 BACnetStack_GetAPIPatchVersion(), BACnetStack_GetAPIBuildVersion());
+        g_firmwareRevision = buf;
     }
 
     if (CASExampleHelper::HandleHelpAndVersionArgs(argc, argv, APP_NAME, APP_VERSION)) {
