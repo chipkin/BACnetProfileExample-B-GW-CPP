@@ -73,8 +73,8 @@ virtual device.
 
 ## Conventions
 
-- Device is named "Rainbow"; objects use the series' colour names; vendor id 389.
-- The VIRTUAL device is named "Rainbow (virtual)", instance = the gateway's
+- Device is named "Chipkin Example B-GW"; objects use the series' colour names; vendor id 389.
+- The VIRTUAL device is named "Chipkin Example B-GW (virtual)", instance = the gateway's
   instance + 100 (`docs/colour-table.md`) - **fixed**, not moved by
   `--deviceID` (that flag renumbers only the gateway itself).
 - Implement **only** the services and objects the B-GW profile requires - but

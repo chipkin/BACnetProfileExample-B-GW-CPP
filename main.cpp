@@ -32,7 +32,7 @@
 // sensor inputs and three commandable outputs a client drives with
 // WriteProperty:
 //
-//     Device 389019            "Rainbow"           (instance configurable with --deviceID)
+//     Device 389019            "Chipkin Example B-GW"           (instance configurable with --deviceID)
 //     Analog Input  1          "Bronze"            (REAL, degrees Celsius; read-only)
 //     Binary Input  1          "Emerald"           (active / inactive; read-only)
 //     Multi-State Input 1      "Hot Pink"          (state 1..3; read-only)
@@ -44,7 +44,7 @@
 // Behind it, on virtual network VIRTUAL_NETWORK_NUMBER, sits ONE VIRTUAL
 // DEVICE - the thing this gateway is actually gatewaying:
 //
-//     Device 389119            "Rainbow (virtual)" (docs/colour-table.md: gateway
+//     Device 389119            "Chipkin Example B-GW (virtual)" (docs/colour-table.md: gateway
 //                                                    instance + 100)
 //     Analog Input  1          "Bronze"            (REAL, degrees Celsius; read-only;
 //                                                    its OWN value, independent of the
@@ -109,7 +109,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-GW (Gateway) Example - C++";
-static const char* APP_VERSION = "1.0.1";
+static const char* APP_VERSION = "1.0.2";
 
 // The GATEWAY device instance. BACnet requires this to be configurable, so it
 // defaults to 389019 (docs/colour-table.md) and can be overridden on the
@@ -128,7 +128,7 @@ static uint32_t g_deviceInstance = 389019;
 static const uint32_t VIRTUAL_DEVICE_INSTANCE = 389119;
 // The virtual device's Object_Name. CHANGE BEFORE YOU SHIP, and see the
 // warning on DEVICE_NAME below - it applies here too.
-static const char* VIRTUAL_DEVICE_NAME = "Rainbow (virtual)";
+static const char* VIRTUAL_DEVICE_NAME = "Chipkin Example B-GW (virtual)";
 
 // The virtual network the virtual device lives on, and the Network Port
 // object instance created for it by BACnetStack_AddVirtualNetwork. Neither is
@@ -161,13 +161,13 @@ static const uint32_t VENDOR_IDENTIFIER = 389;
 // whole BACnet internetwork, and here it is a COMPILE-TIME constant. The
 // device instance is runtime-configurable via --deviceID, so it is easy to
 // ship two units, configure their instances correctly, and still have BOTH
-// announce Object_Name "Rainbow" - a spec violation, and a hard BTL failure.
+// announce Object_Name "Chipkin Example B-GW" - a spec violation, and a hard BTL failure.
 // The SAME is true of VIRTUAL_DEVICE_NAME below: it is fixed at compile time
 // too, and every unit's virtual device would collide right along with the
 // gateway's. In a real product BOTH names must be per-unit configurable:
 // derive them from a serial number, DIP switches, a config file, or add a
 // --deviceName argument.
-static const char* DEVICE_NAME = "Rainbow";
+static const char* DEVICE_NAME = "Chipkin Example B-GW";
 
 // The GATEWAY's Description. Change it to what YOUR device actually is; this
 // string describes this tutorial.
