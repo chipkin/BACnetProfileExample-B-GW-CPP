@@ -43,7 +43,7 @@ OWN device instead of a separate virtual device). This example implements
 ## The devices this example creates
 
 ```
-Device 389019  "Rainbow"              (the GATEWAY - Vendor 389, Chipkin Automation Systems)
+Device 389019  "Chipkin Example B-GW"              (the GATEWAY - Vendor 389, Chipkin Automation Systems)
     |
     +-- Analog Input  1       "Bronze"       Present_Value  21.5      (REAL, degrees Celsius; read-only)
     +-- Binary Input  1       "Emerald"      Present_Value  inactive  (0 = inactive / 1 = active; read-only)
@@ -54,7 +54,7 @@ Device 389019  "Rainbow"              (the GATEWAY - Vendor 389, Chipkin Automat
     +-- Network Port 1        "Vermilion"    BACnet/IP                (the one physical port)
     +-- Network Port 2        (unnamed)      virtual network 100      (created internally by AddVirtualNetwork)
 
-Device 389119  "Rainbow (virtual)"     (the VIRTUAL device, on virtual network 100)
+Device 389119  "Chipkin Example B-GW (virtual)"     (the VIRTUAL device, on virtual network 100)
     |
     +-- Analog Input  1       "Bronze"       Present_Value  19.0      (REAL, degrees Celsius; read-only;
                                                                         its OWN value, independent of the
@@ -141,7 +141,7 @@ trending.
 
 | Object type | Device | Instance | Name | Access |
 |-------------|--------|:--------:|------|--------|
-| Device | gateway (389019) | 389019 | Rainbow | - |
+| Device | gateway (389019) | 389019 | Chipkin Example B-GW | - |
 | Analog Input | gateway (389019) | 1 | Bronze | read-only |
 | Binary Input | gateway (389019) | 1 | Emerald | read-only |
 | Multi-State Input | gateway (389019) | 1 | Hot Pink | read-only |
@@ -150,7 +150,7 @@ trending.
 | Multi-State Output | gateway (389019) | 1 | Indigo | writable (commandable) |
 | Network Port | gateway (389019) | 1 | Vermilion | BACnet/IP |
 | Network Port | gateway (389019) | 2 | (unnamed) | virtual network 100 (created internally) |
-| Device | **virtual (389119)** | 389119 | Rainbow (virtual) | - |
+| Device | **virtual (389119)** | 389119 | Chipkin Example B-GW (virtual) | - |
 | Analog Input | **virtual (389119)** | 1 | Bronze | read-only |
 | Network Port | **virtual (389119)** | 1 | (unnamed) | virtual network 100 (created internally) |
 
@@ -246,7 +246,7 @@ FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
 TX 27 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
 FYI: I-Am broadcast for the gateway (Device 389019) and the virtual device (Device 389119).
-FYI: Device 389019 ("Rainbow") ready. Vendor ID 389. Gateways virtual Device 389119 ("Rainbow (virtual)") on virtual network 100. Press 'h' for help.
+FYI: Device 389019 ("Chipkin Example B-GW") ready. Vendor ID 389. Gateways virtual Device 389119 ("Chipkin Example B-GW (virtual)") on virtual network 100. Press 'h' for help.
 ```
 
 The device listens on UDP **47808** by default. Allow it through your
@@ -288,7 +288,7 @@ see "How the virtual network works" above for why.
 
 1. **Who-Is / I-Am, both devices.** An unrestricted Who-Is directly addressed
    to the gateway's UDP endpoint gets I-Am from the gateway (`389019`,
-   `Object_Name` = `Rainbow`). A Who-Is sent as an NPDU-level broadcast to
+   `Object_Name` = `Chipkin Example B-GW`). A Who-Is sent as an NPDU-level broadcast to
    **DNET 100** (the virtual network) gets I-Am from the virtual device
    (`389119`, vendor `389`, max-APDU `1476`, no segmentation) - both devices'
    unsolicited start-up I-Am broadcasts were also captured (`TX 21 bytes` /
@@ -296,7 +296,7 @@ see "How the virtual network works" above for why.
 2. **ReadProperty, routed to the virtual device (DS-RP-B + GW-VN-B).** An NPDU
    addressed to DNET 100, DADR `05 EF FF` (the virtual device's instance,
    `389119`, encoded as its MAC on the virtual network) successfully reads:
-   `Object_Name` = `"Rainbow (virtual)"` on `device,389119`; `Object_Name` =
+   `Object_Name` = `"Chipkin Example B-GW (virtual)"` on `device,389119`; `Object_Name` =
    `"Bronze"` and `Present_Value` = `19.0` on `analog-input,1` - the virtual
    device's OWN Analog Input, independent of the gateway's.
 3. **Separate `Object_List`s.** The gateway's `Object_List` (read unrouted)
