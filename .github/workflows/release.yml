@@ -111,6 +111,16 @@ jobs:
           cat "${{ matrix.metrics }}"
           { echo '### metrics (${{ matrix.os }})'; echo '```json'; cat "${{ matrix.metrics }}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # The Wire Tests: drive the gateway over BACnet/IP from outside it, in both modes
+      # (--mode eo and --mode vn), and fail if its Profile Function is gone - foreign data
+      # into BACnet, BACnet commands out to the foreign bus, a dead foreign device reported.
+      # Linux only: one check listens for the gateway's broadcasts on its own UDP port, which
+      # POSIX SO_REUSEADDR allows and Windows refuses (tests/README.md).
+      - name: Wire Tests (both modes)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 tests/run_wire_tests.py --exe "${{ matrix.exe }}"
+
       - name: Package
         shell: bash
         run: |

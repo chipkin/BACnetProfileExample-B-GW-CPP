@@ -70,9 +70,19 @@ set(COMMON_SOURCES
     "${EXAMPLES_COMMON_DIR}/CASExampleHelper.cpp"
     "${EXAMPLES_COMMON_DIR}/SimpleUDP.cpp")
 
+# --- The foreign bus --------------------------------------------------------
+# ForeignBus.h is the seam between the gateway and the non-BACnet network. In
+# this example it is implemented by SIMULATION (simulation/). A real product
+# replaces SimulatedForeignBus.cpp with its own driver (Modbus TCP/RTU, a PLC
+# protocol, ...) and deletes SimulationControl.cpp (the Wire Tests' back door).
+set(SIMULATION_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/simulation/SimulatedForeignBus.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/simulation/SimulationControl.cpp")
+
 # --- The executable ---------------------------------------------------------
 add_executable(BACnetExampleBGW
     main.cpp
+    ${SIMULATION_SOURCES}
     ${COMMON_SOURCES})
 
 target_include_directories(BACnetExampleBGW PRIVATE
@@ -89,7 +99,7 @@ if(MSVC)
 else()
     set(EXAMPLE_WARNINGS "-Wall;-Wextra")
 endif()
-set_source_files_properties(main.cpp ${COMMON_SOURCES}
+set_source_files_properties(main.cpp ${SIMULATION_SOURCES} ${COMMON_SOURCES}
     PROPERTIES COMPILE_OPTIONS "${EXAMPLE_WARNINGS}")
 
 # --- Platform sockets -------------------------------------------------------

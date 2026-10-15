@@ -2,3 +2,6 @@
 build/
 
 build-static/
+
+# Python bytecode from tests/ and wiretest/
+__pycache__/

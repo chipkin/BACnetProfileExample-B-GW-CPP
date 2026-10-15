@@ -8,31 +8,47 @@ Guidance for AI coding agents working in this repository. See
 
 A **tutorial** C++ example that implements the BACnet **B-GW (Gateway)** device
 profile using the CAS BACnet Stack. It is one of a series - one git repo per
-BACnet profile - seeded from B-RTR (Router), with the second physical Network
-Port and physical routing removed and DeviceCommunicationControl (DM-DCC-B)
-and a **virtual network / virtual device** (GW-VN-B) added instead. It is the
-series' canonical example for **F-GATEWAY**. The top priority is that the code
-reads like a tutorial a customer can learn from and copy-paste. Favour clarity
-over cleverness.
+BACnet profile - and meets the series' **Profile-functional** bar (series
+`docs/GLOSSARY.md`): the gateway polls three devices on a foreign bus and
+presents their data as BACnet objects, carries BACnet writes back to them, and
+reports a foreign device that stops answering (the Failure Mode), all proven by
+Wire Tests. It runs as either B-GW: `--mode eo` (GW-EO-B, the default) or
+`--mode vn` (GW-VN-B, a virtual device per foreign device on virtual network
+100, with the NM-RC-B that requires). The top priority is that the code reads
+like a tutorial a customer can learn from and copy-paste. Favour clarity over
+cleverness.
+
+The foreign bus is **Simulation** (in-process pretend slaves). It sits behind
+ONE seam, `ForeignBus.h`; a real product implements that header with its own
+driver (Modbus TCP/RTU, a PLC protocol, ...) and deletes `simulation/`.
 
 ## Layout
 
 This repository is self-contained:
 
-- `main.cpp` - the example device: the real GATEWAY device plus one VIRTUAL
-  device it represents.
+- `main.cpp` - the gateway: its objects (both modes), its cache of the foreign
+  bus, the poll scheduler and write-through, and the BACnet callbacks.
+- `ForeignBus.h` - THE SEAM to the non-BACnet network (asynchronous
+  StartRead/StartWrite/CheckTransaction).
+- `simulation/` - Simulation, outside the BACnet Surface:
+  `SimulatedForeignBus.cpp` implements the seam with three in-memory slaves;
+  `SimulationControl.cpp` is the Wire Tests' test-only control socket, opened
+  only when the environment variable `BGW_SIMULATION_CONTROL_PORT` is set.
+- `tests/` - the Wire Tests (`run_wire_tests.py` runs them in both modes);
+  `wiretest/` - the series' shared Wiretest Harness, vendored like `common/`
+  (own version + changelog; change it in every example that vendors it).
+- `TODO.md` - the known gaps (both in the stack), each reported by the Wire Tests.
 - `common/` - the shared helper (UDP, callbacks, CLI, keyboard) vendored in.
 - `README.md` - what this example is. Keep it short and about THIS example
   only.
 - `TUTORIAL.md` - how to extend and review the example, on BOTH devices. Long
   -form material that would bloat the README belongs here.
 - `docs/PICS.md` - the Protocol Implementation Conformance Statement, for
-  BOTH devices. Its objects-and-properties section is GENERATED from
+  both modes. Its objects-and-properties section is GENERATED from
   `docs/objects.json`; do not hand-edit between the `OBJECTS-PROPERTIES`
   markers.
-- `docs/objects.json` - the input to that generator: one entry per object,
-  per device (both Device entries, both devices' Network Port objects, and
-  each device's other objects). Update it in the same change as any
+- `docs/objects.json` - the input to that generator: one entry per kind of
+  object per mode (an entry stands for the three slaves' identical objects). Update it in the same change as any
   `main.cpp` change that adds an object or a `GetProperty*` branch.
 - `submodules/cas-bacnet-stack/` - the **CAS BACnet Stack** as a git submodule
   (private; compiled from source). After cloning, run
@@ -63,82 +79,65 @@ and must be able to build it with the two commands above.
 ## Run
 
 ```bash
-./build/BACnetExampleBGW [--port 47808] [--deviceID 389019]   # Linux/macOS
-.\build\Release\BACnetExampleBGW.exe [--port 47808] [--deviceID 389019]   # Windows
+./build/BACnetExampleBGW [--mode eo|vn] [--port 47808] [--deviceID 389019]   # Linux/macOS
+.uild\Release\BACnetExampleBGW.exe [--mode eo|vn] [--port 47808]        # Windows
 ```
 
 Interactive keys while running: `h` help, `q` quit, up/down nudge the
-gateway's Analog Input 1, `r` re-send I-Am for both the gateway and the
-virtual device.
+SIMULATED Boiler's sensor (Analog Input 1 follows), `k` kill / revive the
+simulated Boiler (`common/` 3.1.0), `r` re-broadcast I-Am-Router-To-Network
+(vn) or the gateway's I-Am (eo).
 
 ## Conventions
 
-- Device is named "Chipkin Example B-GW"; objects use the series' colour names; vendor id 389.
-- The VIRTUAL device is named "Chipkin Example B-GW (virtual)", instance = the gateway's
-  instance + 100 (`docs/colour-table.md`) - **fixed**, not moved by
-  `--deviceID` (that flag renumbers only the gateway itself).
-- Implement **only** the services and objects the B-GW profile requires - but
-  expose **every required property** of each object for Protocol_Revision 30,
-  on BOTH devices.
-- Outputs are **commandable**: store the 16-slot `Priority_Array` +
-  `Relinquish_Default` in the app (the `Commandable` struct); let the stack
-  resolve `Present_Value`. Writes land via the `SetProperty*` callbacks (value)
-  and `SetPropertyNull` (relinquish). This part is unchanged from B-SA/B-ASC.
-  Only the gateway has commandable outputs; the virtual device does not.
-- **One socket, two devices.** The virtual device has no Network Port or UDP
-  socket of its own - `BACnetStack_AddVirtualNetwork` creates a Network Port
-  object for the virtual network internally, and the virtual device is reached
-  through the gateway's one physical port. Do not call `SetupUDP` a second
-  time or add a second `SetNetworkPortInstance` for it.
-- **Dispatch every Get/SetProperty callback on `deviceInstance` first.** Both
-  devices have an "Analog Input 1 (Bronze)" at the SAME object type+instance;
-  only `deviceInstance` tells them apart. `GetCommandable()` already does this;
-  keep the same pattern for anything new.
-- **`BACnetStack_AddVirtualNetwork` then `BACnetStack_AddDeviceToVirtualNetwork`,
-  in that order, both after `BACnetStack_AddDevice`.** The virtual device
-  instance then behaves like any other `deviceInstance` argument to
-  `BACnetStack_AddObject`/`SetServiceEnabled`/`SetPropertyEnabled`.
-- **Do not add physical routing or a second physical Network Port** - that is
-  B-RTR's profile (F-ROUTER/F-MULTIPORT), not this one's. This example does
-  not claim DM-LM-B. It cannot disclaim NM-RC-B: Annex K.7.1 makes NM-RC-B
-  mandatory for GW-VN-B. The stack's virtual router provides it, unverified on
-  the wire for this example - do not write that it is unsupported.
-- **Say plainly what is not simulated**: the virtual device's value is a
-  constant and no foreign protocol sits behind the gateway.
+- Device is named "Chipkin Example B-GW"; objects use the series' colour names
+  ("Bronze", "Bronze 2", ...); vendor id 389. Virtual devices (vn) are 389119,
+  389120, 389121, named "Chipkin Example B-GW (<slave>)" - **fixed**, not moved
+  by `--deviceID`.
+- **The BACnet Surface is exactly the profile's set**: per slave an Analog
+  Input (input register), a commandable Analog Output (holding register) and a
+  commandable Binary Output (coil), plus Device and Network Port(s). Do not add
+  the B-SS template objects back (Binary Input, Multi-State Input/Output) - the
+  Wire Tests check the Object_List sizes.
+- **Answer BACnet from the cache, never from the bus.** Callbacks read
+  `GatewayedSlave`; `ServiceForeignBus()` (polls, write-through) is the only
+  code that talks to `ForeignBus.h`, and nothing blocks.
+- **`FindMappedPoint()` is the one place** that turns (deviceInstance, type,
+  instance) into a slave and point kind, in both modes. Every callback goes
+  through it; dispatch on deviceInstance first.
+- Outputs are **commandable**: the app stores the 16-slot `Priority_Array` and
+  `Relinquish_Default` (`Commandable`); the stack resolves `Present_Value`.
+  `WinningValue()` resolves the same winner only to write it to the slave.
+- **Offline**: `OFFLINE_AFTER_FAILED_POLLS` unanswered polls. eo: Reliability
+  `communication-failure` (the stack sets FAULT from it). vn: additionally
+  Who-Is/Who-Has off for that virtual device. The vn "remain silent" half of
+  Annex H.2.2.1 is a stack gap (TODO.md) - do not paper over it.
+- **The test control socket is not a CLI option** and must never change BACnet
+  behaviour; it only drives the simulation. Keep it env-var-only.
 - Every `GetProperty*` callback ends with `uint32_t* errorCode`. Leave it alone
   on a catch-all decline (the stack's decline-and-fabricate default answers
   required properties this app does not serve); set it only where this device
-  knows the read is wrong (`State_Text` out of range is the one case here, and
-  `DeviceCommunicationControl`'s reject paths - see its own comment for why
-  that callback is the one exception with no safe catch-all).
+  knows the request is wrong.
 - Match the surrounding code style: `const`-correct parameters, check every stack
-  return value, keep `main.cpp` linear and well-commented.
+  return value, descriptive names (no single letters except a plain loop `i`).
 - **Never edit `common/` in this repo alone** - it is a vendored copy shared by
   every example in the series, with its own version (`COMMON_VERSION`) and
-  changelog (`common/CHANGELOG.md`). To change it: edit it in
-  `BACnetProfileExample-B-SS-CPP` (the source of truth) on a branch, bump the
-  version, add a changelog entry, open a PR there, merge, THEN re-copy
-  `common/` into every example repository including this one.
+  changelog (`common/CHANGELOG.md`). Edit it in `BACnetProfileExample-B-SS-CPP`
+  (the source of truth), bump, changelog, then re-copy. Same for `wiretest/`
+  (its source is whichever example last bumped `WIRETEST_VERSION`).
 
 ## How to verify a change
 
-There are no unit tests; verification is behavioural:
+```bash
+python3 tests/run_wire_tests.py --exe build/BACnetExampleBGW   # Linux/macOS; both modes
+```
 
-1. Build, then run one instance with `--port` on a clear UDP port.
-2. With a BACnet client (e.g. bacpypes3/BAC0 or CAS BACnet Explorer), send
-   **Who-Is** and confirm **I-Am** from BOTH device instances (the gateway and
-   the virtual device).
-3. **ReadProperty** every required property of every object on BOTH devices
-   and confirm the values; confirm `Protocol_Revision` is 30 on both; confirm
-   each device's `Object_List` is separate and correct.
-4. **WriteProperty** a gateway commandable output's `Present_Value` at a
-   priority, re-read it, then write NULL to relinquish.
-5. **DeviceCommunicationControl**: `disable-initiation` then `enable` against
-   the gateway; confirm the virtual device does not answer it (not claimed).
-6. If you changed the objects or their properties on either device,
-   regenerate `docs/PICS.md`
-   (`python tools/gen-objects-properties.py BACnetProfileExample-B-GW-CPP` from
-   the series root) and confirm no row comes out flagged with ⚠.
+Must end `ALL WIRE TESTS PASSED`. A new behaviour gets a new check, and the
+check must be **seen to fail with the behaviour removed** (tests/README.md has
+the record for every existing one). If you changed objects or properties,
+regenerate `docs/PICS.md` (`python tools/gen-objects-properties.py
+BACnetProfileExample-B-GW-CPP` from the series root) and confirm no row comes
+out flagged with ⚠.
 
 ## Releasing
 

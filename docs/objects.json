@@ -4,131 +4,265 @@
       "type": "Device",
       "instance": 389019,
       "name": "Chipkin Example B-GW",
-      "app": ["Object_Name", "Vendor_Name", "Vendor_Identifier", "Model_Name",
-              "Firmware_Revision", "Application_Software_Version", "Description"],
-      "enabled": ["Description"],
+      "app": [
+        "Object_Name",
+        "Vendor_Name",
+        "Vendor_Identifier",
+        "Model_Name",
+        "Firmware_Revision",
+        "Application_Software_Version",
+        "Description"
+      ],
+      "enabled": [
+        "Description"
+      ],
       "writable": [],
-      "accepted": ["System_Status", "Max_APDU_Length_Accepted", "Segmentation_Supported",
-                   "APDU_Timeout", "Number_Of_APDU_Retries", "Database_Revision"],
-      "stack": ["Object_List", "Protocol_Version", "Protocol_Revision",
-                "Protocol_Services_Supported", "Protocol_Object_Types_Supported",
-                "Device_Address_Binding"],
-      "note": "THE GATEWAY device; vendor 389 (Chipkin Automation Systems); instance configurable with --deviceID. The stack rows are device-wide facts only the stack knows - the protocol version and revision it implements, the services and object types it was configured with (from this example's own BACnetStack_SetServiceEnabled/AddObject calls), the live object list and address-binding table. The accepted rows are the stack's configured defaults for APDU limits, segmentation, system status and database revision; an application that answered them from its own constants could contradict the stack, so this example does not"
-    },
-    {
-      "type": "Analog Input",
-      "instance": 1,
-      "name": "Bronze",
-      "app": ["Present_Value", "Object_Name", "Units", "Out_Of_Service"],
-      "enabled": [],
-      "writable": [],
-      "accepted": ["Event_State"],
-      "note": "belongs to the GATEWAY device (389019). REAL, degrees Celsius; starts at 21.5; read-only; nudged by the up/down keys"
-    },
-    {
-      "type": "Binary Input",
-      "instance": 1,
-      "name": "Emerald",
-      "app": ["Present_Value", "Object_Name", "Polarity", "Out_Of_Service"],
-      "enabled": [],
-      "writable": [],
-      "accepted": ["Event_State"],
-      "note": "belongs to the GATEWAY device (389019). starts inactive; read-only"
-    },
-    {
-      "type": "Multi-state Input",
-      "instance": 1,
-      "name": "Hot Pink",
-      "app": ["Present_Value", "Object_Name", "Number_Of_States", "Out_Of_Service", "State_Text"],
-      "enabled": ["State_Text"],
-      "writable": [],
-      "accepted": ["Event_State"],
-      "note": "belongs to the GATEWAY device (389019). state 1 of 3: On, Off, Auto; read-only"
-    },
-    {
-      "type": "Analog Output",
-      "instance": 1,
-      "name": "Chartreuse",
-      "app": ["Object_Name", "Units", "Out_Of_Service", "Relinquish_Default"],
-      "enabled": [],
-      "writable": ["Present_Value"],
-      "accepted": ["Event_State"],
-      "note": "belongs to the GATEWAY device (389019). REAL setpoint, default 20.0 C; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyReal/GetPropertyBool"
-    },
-    {
-      "type": "Binary Output",
-      "instance": 1,
-      "name": "Fuchsia",
-      "app": ["Object_Name", "Out_Of_Service", "Polarity", "Relinquish_Default"],
-      "enabled": [],
-      "writable": ["Present_Value"],
-      "accepted": ["Event_State"],
-      "note": "belongs to the GATEWAY device (389019). active/inactive, default inactive; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyEnumerated/GetPropertyBool"
-    },
-    {
-      "type": "Multi-state Output",
-      "instance": 1,
-      "name": "Indigo",
-      "app": ["Object_Name", "Out_Of_Service", "Number_Of_States", "Relinquish_Default"],
-      "enabled": [],
-      "writable": ["Present_Value"],
-      "accepted": ["Event_State"],
-      "note": "belongs to the GATEWAY device (389019). state 1 of 3, default state 1; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyUnsignedInteger/GetPropertyBool"
+      "accepted": [
+        "System_Status",
+        "Max_APDU_Length_Accepted",
+        "Segmentation_Supported",
+        "APDU_Timeout",
+        "Number_Of_APDU_Retries",
+        "Database_Revision"
+      ],
+      "stack": [
+        "Object_List",
+        "Protocol_Version",
+        "Protocol_Revision",
+        "Protocol_Services_Supported",
+        "Protocol_Object_Types_Supported",
+        "Device_Address_Binding"
+      ],
+      "note": "THE GATEWAY device, both modes; vendor 389 (Chipkin Automation Systems); instance configurable with --deviceID. --mode eo: its Object_List is itself, Network Port 1 and the nine mapped objects below (11). --mode vn: itself and Network Ports 1 and 2 (3). The stack rows are device-wide facts only the stack knows - the protocol version and revision it implements, the services and object types it was configured with, the live object list and address-binding table. The accepted rows are the stack's configured defaults for APDU limits, segmentation, system status and database revision; an application that answered them from its own constants could contradict the stack, so this example does not"
     },
     {
       "type": "Network Port",
       "instance": 1,
       "name": "Vermilion",
-      "app": ["Object_Name", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
+      "app": [
+        "Object_Name",
+        "Out_Of_Service",
+        "Network_Type",
+        "Protocol_Level",
+        "Changes_Pending"
+      ],
       "enabled": [],
       "writable": [],
-      "accepted": ["Reliability"],
-      "note": "belongs to the GATEWAY device (389019). BACnet/IP, the device's one physical port - Network_Number is NOT configured here (0/unknown), unlike B-RTR's ports. Network_Type/Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments at start-up. Changes_Pending is likewise computed and answered natively. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal)."
-    },
-    {
-      "type": "Network Port",
-      "instance": 2,
-      "name": "(unnamed)",
-      "app": [],
-      "enabled": [],
-      "writable": [],
-      "accepted": ["Object_Name", "Reliability", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
-      "note": "belongs to the GATEWAY device (389019). Created internally and fully populated by BACnetStack_AddVirtualNetwork() for the virtual network (100) - this application registers no callback for it and never calls SetPropertyEnabled/SetPropertyWritable on it. Verified on the wire: Object_Name reads back the stack's generic default 'undefined' (no GetPropertyCharacterString case matches it); Network_Type reads back 'virtual' (7), confirming the stack itself created and typed this port correctly."
-    },
-    {
-      "type": "Device",
-      "instance": 389119,
-      "name": "Chipkin Example B-GW (virtual)",
-      "app": ["Object_Name", "Vendor_Name", "Vendor_Identifier", "Model_Name",
-              "Firmware_Revision", "Application_Software_Version", "Description"],
-      "enabled": ["Description"],
-      "writable": [],
-      "accepted": ["System_Status", "Max_APDU_Length_Accepted", "Segmentation_Supported",
-                   "APDU_Timeout", "Number_Of_APDU_Retries", "Database_Revision"],
-      "stack": ["Object_List", "Protocol_Version", "Protocol_Revision",
-                "Protocol_Services_Supported", "Protocol_Object_Types_Supported",
-                "Device_Address_Binding"],
-      "note": "THE VIRTUAL device (GW-VN-B) - the thing this gateway represents, NOT the gateway device above. Added with BACnetStack_AddDeviceToVirtualNetwork after BACnetStack_AddVirtualNetwork(389019, network 100, ...); instance is the gateway's instance + 100, fixed (not moved by --deviceID). It is a SEPARATE device with its own Object_List, reached through the gateway's one physical Network Port (it has no socket of its own) - its own Network Port object (instance 1, stack-created) is listed separately below. The stack and accepted rows are exactly as for the gateway above, since this device is set up with the same calls."
+      "accepted": [
+        "Reliability"
+      ],
+      "note": "the GATEWAY's BACnet/IP port, both modes. Network_Number is NOT configured (0/unknown). Network_Type/Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments at start-up; Changes_Pending is computed and answered natively. Reliability has no fault condition this example detects, so it is accepted at the generic default"
     },
     {
       "type": "Analog Input",
       "instance": 1,
       "name": "Bronze",
-      "app": ["Present_Value", "Object_Name", "Units", "Out_Of_Service"],
+      "app": [
+        "Present_Value",
+        "Units",
+        "Object_Name",
+        "Out_Of_Service",
+        "Reliability",
+        "Description"
+      ],
+      "enabled": [
+        "Reliability",
+        "Description"
+      ],
+      "writable": [],
+      "accepted": [
+        "Event_State"
+      ],
+      "note": "--mode eo, on the GATEWAY (389019): instance n is slave unit n, named with the colour and n for n > 1 (one entry stands for instances 1-3). Reads input register 0 of its slave (measured temperature, C x 10). REAL, degrees Celsius; Present_Value is the gateway's cached value from the last poll, still served while the slave is offline. Reliability is no-fault-detected, or communication-failure while the slave is offline - the stack builds Status_Flags (FAULT) from it. Event_State reads normal (no intrinsic alarming)"
+    },
+    {
+      "type": "Analog Output",
+      "instance": 1,
+      "name": "Chartreuse",
+      "app": [
+        "Units",
+        "Relinquish_Default",
+        "Object_Name",
+        "Out_Of_Service",
+        "Reliability",
+        "Description"
+      ],
+      "enabled": [
+        "Reliability",
+        "Description"
+      ],
+      "writable": [
+        "Present_Value"
+      ],
+      "accepted": [
+        "Event_State"
+      ],
+      "note": "--mode eo, on the GATEWAY (389019): instance n is slave unit n, named with the colour and n for n > 1 (one entry stands for instances 1-3). Writes holding register 0 of its slave (setpoint, C x 10). Commandable via a 16-slot Priority_Array (Annex H.2.1.3); Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyReal/GetPropertyBool. The winning value is written through to the register (write caching, Annex H.2.1.1). Relinquish_Default 65.0 / 13.0 / 7.0 for units 1 / 2 / 3"
+    },
+    {
+      "type": "Binary Output",
+      "instance": 1,
+      "name": "Fuchsia",
+      "app": [
+        "Polarity",
+        "Relinquish_Default",
+        "Object_Name",
+        "Out_Of_Service",
+        "Reliability",
+        "Description"
+      ],
+      "enabled": [
+        "Reliability",
+        "Description"
+      ],
+      "writable": [
+        "Present_Value"
+      ],
+      "accepted": [
+        "Event_State"
+      ],
+      "note": "--mode eo, on the GATEWAY (389019): instance n is slave unit n, named with the colour and n for n > 1 (one entry stands for instances 1-3). Writes coil 0 of its slave (enable). Commandable via a 16-slot Priority_Array; Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyEnumerated/GetPropertyBool; the winning value is written through to the coil. Relinquish_Default active / active / inactive for units 1 / 2 / 3"
+    },
+    {
+      "type": "Network Port",
+      "instance": 2,
+      "name": "Vermilion 2",
+      "app": [
+        "Object_Name",
+        "Out_Of_Service"
+      ],
       "enabled": [],
       "writable": [],
-      "accepted": ["Event_State"],
-      "note": "belongs to the VIRTUAL device (389119), NOT the gateway's Analog Input 1 above - same object type/instance/name by series convention, but a completely separate object under a separate device, proving GW-VN-B: the represented device has something to actually be read. REAL, degrees Celsius; starts at 19.0; read-only; independent of the gateway's own Analog Input 1"
+      "accepted": [
+        "Reliability",
+        "Network_Type",
+        "Protocol_Level",
+        "Changes_Pending"
+      ],
+      "note": "--mode vn only, on the GATEWAY: the port to virtual network 100, created and populated by BACnetStack_AddVirtualNetwork() (Network_Type virtual, Network_Number 100, quality configured). The app serves only its Object_Name and Out_Of_Service"
+    },
+    {
+      "type": "Device",
+      "instance": 389119,
+      "name": "Chipkin Example B-GW (Boiler)",
+      "app": [
+        "Object_Name",
+        "Vendor_Name",
+        "Vendor_Identifier",
+        "Model_Name",
+        "Firmware_Revision",
+        "Application_Software_Version",
+        "Description"
+      ],
+      "enabled": [
+        "Description"
+      ],
+      "writable": [],
+      "accepted": [
+        "System_Status",
+        "Max_APDU_Length_Accepted",
+        "Segmentation_Supported",
+        "APDU_Timeout",
+        "Number_Of_APDU_Retries",
+        "Database_Revision"
+      ],
+      "stack": [
+        "Object_List",
+        "Protocol_Version",
+        "Protocol_Revision",
+        "Protocol_Services_Supported",
+        "Protocol_Object_Types_Supported",
+        "Device_Address_Binding"
+      ],
+      "note": "--mode vn only: one VIRTUAL device per slave on virtual network 100 - 389119 \"Chipkin Example B-GW (Boiler)\", 389120 \"... (Air Handler)\", 389121 \"... (Chiller)\" (one entry stands for the three). Added with BACnetStack_AddDeviceToVirtualNetwork; instances fixed (not moved by --deviceID). Its Object_List is itself, the three mapped objects below and its own stack-created Network Port (5). Reached through the gateway with DNET 100, DADR = the 3-octet instance. While its slave is offline it does not answer Who-Is/Who-Has (Annex H.2.2.1); its reads are still answered (a stack gap - README Known gaps). The stack and accepted rows are as for the gateway"
+    },
+    {
+      "type": "Analog Input",
+      "instance": 1,
+      "name": "Bronze",
+      "app": [
+        "Present_Value",
+        "Units",
+        "Object_Name",
+        "Out_Of_Service",
+        "Reliability",
+        "Description"
+      ],
+      "enabled": [
+        "Reliability",
+        "Description"
+      ],
+      "writable": [],
+      "accepted": [
+        "Event_State"
+      ],
+      "note": "--mode vn, on EACH virtual device (389119 / 389120 / 389121 for units 1 / 2 / 3), always instance 1 (one entry stands for the three devices). Reads input register 0 of its slave (measured temperature, C x 10). REAL, degrees Celsius; Present_Value is the gateway's cached value from the last poll, still served while the slave is offline. Reliability is no-fault-detected, or communication-failure while the slave is offline - the stack builds Status_Flags (FAULT) from it. Event_State reads normal (no intrinsic alarming)"
+    },
+    {
+      "type": "Analog Output",
+      "instance": 1,
+      "name": "Chartreuse",
+      "app": [
+        "Units",
+        "Relinquish_Default",
+        "Object_Name",
+        "Out_Of_Service",
+        "Reliability",
+        "Description"
+      ],
+      "enabled": [
+        "Reliability",
+        "Description"
+      ],
+      "writable": [
+        "Present_Value"
+      ],
+      "accepted": [
+        "Event_State"
+      ],
+      "note": "--mode vn, on EACH virtual device (389119 / 389120 / 389121 for units 1 / 2 / 3), always instance 1 (one entry stands for the three devices). Writes holding register 0 of its slave (setpoint, C x 10). Commandable via a 16-slot Priority_Array (Annex H.2.1.3); Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyReal/GetPropertyBool. The winning value is written through to the register (write caching, Annex H.2.1.1). Relinquish_Default 65.0 / 13.0 / 7.0 for units 1 / 2 / 3"
+    },
+    {
+      "type": "Binary Output",
+      "instance": 1,
+      "name": "Fuchsia",
+      "app": [
+        "Polarity",
+        "Relinquish_Default",
+        "Object_Name",
+        "Out_Of_Service",
+        "Reliability",
+        "Description"
+      ],
+      "enabled": [
+        "Reliability",
+        "Description"
+      ],
+      "writable": [
+        "Present_Value"
+      ],
+      "accepted": [
+        "Event_State"
+      ],
+      "note": "--mode vn, on EACH virtual device (389119 / 389120 / 389121 for units 1 / 2 / 3), always instance 1 (one entry stands for the three devices). Writes coil 0 of its slave (enable). Commandable via a 16-slot Priority_Array; Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyEnumerated/GetPropertyBool; the winning value is written through to the coil. Relinquish_Default active / active / inactive for units 1 / 2 / 3"
     },
     {
       "type": "Network Port",
       "instance": 1,
-      "name": "(unnamed)",
-      "app": [],
+      "name": "Vermilion",
+      "app": [
+        "Object_Name"
+      ],
       "enabled": [],
       "writable": [],
-      "accepted": ["Object_Name", "Reliability", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
-      "note": "belongs to the VIRTUAL device (389119). Created internally and fully populated by BACnetStack_AddDeviceToVirtualNetwork() - not the gateway's own Network Port 2 above, a separate object under the virtual device. This application registers no callback for it. Verified on the wire: Object_Name reads back the stack's generic default 'undefined'; Network_Type reads back 'virtual' (7)."
+      "accepted": [
+        "Reliability",
+        "Out_Of_Service",
+        "Network_Type",
+        "Protocol_Level",
+        "Changes_Pending"
+      ],
+      "note": "--mode vn only, inside EACH virtual device: created and populated by BACnetStack_AddDeviceToVirtualNetwork() (Network_Type virtual). The app serves only its Object_Name"
     }
   ]
 }

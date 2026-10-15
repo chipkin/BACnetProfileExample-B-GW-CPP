@@ -10,12 +10,14 @@ see [README.md](../README.md).
 > `CHANGE ALL OF THIS BEFORE YOU SHIP` block at the top of `main.cpp`. The
 > example has **not** been submitted for BTL certification.
 >
-> This process is **two BACnet devices**: a real GATEWAY (instance 389019,
-> "Chipkin Example B-GW") reachable directly over BACnet/IP, and a VIRTUAL device (instance
-> 389119, "Chipkin Example B-GW (virtual)") on virtual network 100 behind it - the device
-> the gateway represents. Sections 1-10 below describe the gateway; where the
-> virtual device differs, it is called out explicitly. Section 11 lists both
-> devices' objects separately.
+> The example runs as **one of two gateways**, chosen at start-up:
+> **`--mode eo`** (the default, GW-EO-B) is one device, 389019 "Chipkin
+> Example B-GW", whose objects carry the data of three devices on a foreign
+> bus; **`--mode vn`** (GW-VN-B) is that gateway device plus three VIRTUAL
+> devices (389119, 389120, 389121) on virtual network 100 behind it, one per
+> foreign device. Each mode is a separate claim; where they differ, both are
+> stated. **The foreign bus is Simulation** (`simulation/`, see README) - the
+> BACnet behaviour described here is real.
 
 ## 1. Product description
 
@@ -24,161 +26,154 @@ see [README.md](../README.md).
 | **Vendor Name** | Chipkin Automation Systems |
 | **Vendor Identifier** | 389 |
 | **Product Name** | CAS BACnet Stack Example - B-GW |
-| **Product Model Number** | CAS BACnet Stack Example - B-GW |
-| **Application Software Version** | 1.0.2 (`APP_VERSION` in `main.cpp`) |
+| **Product Model Number** | CAS BACnet Stack Example - B-GW (virtual devices: `CAS BACnet Stack Example - B-GW (virtual device)`) |
+| **Application Software Version** | 2.0.0 (`APP_VERSION` in `main.cpp`) |
 | **Firmware Revision** | the linked CAS BACnet Stack version (6.0.23.0 at this Stack Pin) |
 | **BACnet Protocol Version** | 1 |
 | **BACnet Protocol Revision** | 30 |
 
-**Product Description:** a BACnet/IP gateway built on the CAS BACnet Stack. It
-presents a real GATEWAY device (three read-only sensor objects, three
-commandable output objects, and the one physical Network Port) and represents
-ONE VIRTUAL BACnet device (its own Analog Input) on a virtual network behind
-it, per the **GW-VN-B** BIBB. Both devices answer ReadProperty for every
-required property of every object and are discoverable by Who-Is / I-Am and
-Who-Has / I-Have; the gateway also accepts WriteProperty on its commandable
-outputs and DeviceCommunicationControl. It is a tutorial for implementers of
-the B-GW profile.
-
-The virtual device shares the gateway's vendor identity, application software
-version and firmware revision, and answers with its own `Model_Name`
-(`CAS BACnet Stack Example - B-GW (virtual device)`) so a client can tell the
-two devices apart in a discovery tool even though they share one IP/UDP port.
+**Product Description:** a BACnet/IP gateway built on the CAS BACnet Stack.
+It polls three devices on a non-BACnet bus (Simulation in this example: a
+Modbus-style register map per device) and presents each one's measured
+temperature as an Analog Input, its setpoint as a commandable Analog Output
+and its enable as a commandable Binary Output - inside the gateway device
+(`--mode eo`) or inside one virtual device per foreign device (`--mode vn`).
+Reads are answered from the gateway's cache; writes are acknowledged at once
+and written through (Annex H.2.1.1). A foreign device that stops answering is
+reported through Reliability = `communication-failure` and the FAULT flag
+(Annex H.2.3.2), and in `--mode vn` its virtual device stops answering Who-Is
+(Annex H.2.2.1).
 
 ## 2. BACnet standardized device profile (Annex L)
 
-**B-GW - BACnet Gateway** (Annex L.7, Miscellaneous, combinable with any other
-profile family).
-
-This device claims exactly one profile, via the **GW-VN-B** (virtual network)
-mechanism rather than GW-EO-B (embedded objects). Because the B-GW
-requirements are a superset of B-GENERAL's, a conformant B-GW device also
-satisfies **B-GENERAL** (Annex L.8); that is subsumption, not a second claim.
+**B-GW - BACnet Gateway** (Annex L.7.2, Miscellaneous). Annex L.7 lists
+GW-EO-B and GW-VN-B for B-GW with the footnote "One of these BIBBs shall be
+supported"; each mode of this example is a B-GW through one of them. A
+conformant B-GW also satisfies **B-GENERAL** (Annex L.8); that is subsumption,
+not a second claim.
 
 ## 3. BIBBs supported (Annex K)
 
-| BIBB | Description |
-|---|---|
-| DS-RP-B | Data Sharing - ReadProperty - B |
-| DS-WP-B | Data Sharing - WriteProperty - B |
-| DM-DDB-B | Device Management - Dynamic Device Binding - B |
-| DM-DOB-B | Device Management - Dynamic Object Binding - B |
-| DM-DCC-B | Device Management - Device Communication Control - B |
-| GW-VN-B | Gateway - Virtual Network - B (unverified - see below) |
-| NM-RC-B | Network Management - Router Configuration - B (stack-provided, unverified - see below) |
+| BIBB | Description | `--mode eo` | `--mode vn` |
+|---|---|:---:|:---:|
+| DS-RP-B | Data Sharing - ReadProperty - B | yes | yes (gateway and virtual devices) |
+| DS-WP-B | Data Sharing - WriteProperty - B | yes | yes (the virtual devices' outputs) |
+| DM-DDB-B | Device Management - Dynamic Device Binding - B | yes | yes |
+| DM-DOB-B | Device Management - Dynamic Object Binding - B | yes | yes |
+| DM-DCC-B | Device Management - Device Communication Control - B | yes (gateway) | yes (gateway) |
+| GW-EO-B | Gateway - Embedded Objects - B (Annex K.7.2) | **yes** | - |
+| GW-VN-B | Gateway - Virtual Network - B (Annex K.7.1) | - | **yes** - see the gap below |
+| NM-RC-B | Network Management - Router Configuration - B | - | yes (stack's virtual router) - see the gap below |
 
-Annex K.7.1 says a GW-VN-B device "appears to the BACnet network as a router
-as described in Annex H" and "shall, at a minimum, support NM-RC-B and
-DS-RP-B". So NM-RC-B is **not optional for this profile**. The virtual-network
-routing is the stack's: at this Stack Pin its network layer answers a
-Who-Is-Router-To-Network naming virtual network 100 with
-I-Am-Router-To-Network (`BACnetNetworkLayer::ProcessWhoIsRouterToNetwork`).
-That was **read from the stack source, not verified on the wire** against this
-example, and the rest of NM-RC-B (cl. K.6.4's other network-layer messages) has
-not been checked either - so NM-RC-B, and with it GW-VN-B, are unverified
-here.
+Annex K.7.1: a GW-VN-B device "appears to the BACnet network as a router as
+described in Annex H" and "shall, at a minimum, support NM-RC-B and DS-RP-B".
+In `--mode vn` the stack's virtual router answers Who-Is-Router-To-Network with
+I-Am-Router-To-Network(100), and routes requests addressed to DNET 100 to the
+virtual devices - **verified on the wire** by `tests/router_test.py`.
 
-No other BIBBs are supported. In particular this device does **not** support
-DS-RPM-B (ReadPropertyMultiple), DS-COV-B, any alarm and event (AE-*) BIBB,
-scheduling (SCHED-*), trending (T-*), or DM-LM-B / physical inter-datalink
-routing (that is B-RTR's F-ROUTER/F-MULTIPORT, a different profile).
+**Known gaps (both in the stack; README "Known gaps", TODO.md):**
 
-**DS-WP-B, DM-DCC-B and GW-VN-B apply to the GATEWAY only.** The virtual
-device answers DS-RP-B, DM-DDB-B and DM-DOB-B on itself, but has no writable
-property and does not answer DeviceCommunicationControl.
+1. `--mode vn`, Annex H.2.2.1: requests to an OFFLINE foreign device's virtual
+   device should get no answer at all. The stack has no customer export to
+   silence a virtual device, so they are answered from the cache with
+   Reliability = `communication-failure`. (The other half of H.2.2.1 - no I-Am
+   or I-Have on its behalf - is met.)
+2. The I-Am-Router-To-Network answering Who-Is-Router-To-Network is sent to
+   the requester, not with a broadcast MAC address (cl. 6.4.2).
+
+No other BIBBs are supported - in particular not DS-RPM-B, DS-COV-B, any
+alarm and event (AE-*) BIBB, scheduling, trending, DM-LM-B, or physical
+inter-datalink routing (B-RTR). Annex H.2.3.2's "should support initiation of
+event notifications" for faults is not implemented.
 
 ## 4. Application services supported
 
-### Gateway (Device 389019)
+### Gateway (Device 389019), both modes
 
 | Service | Initiate | Execute |
 |---|:---:|:---:|
 | ReadProperty | no | **yes** |
-| WriteProperty | no | **yes** |
+| WriteProperty | no | **yes** (`--mode eo`: the mapped outputs; `--mode vn`: nothing on the gateway is writable) |
 | DeviceCommunicationControl | no | **yes** |
 | Who-Is | no | **yes** |
 | I-Am | **yes** | - |
 | Who-Has | no | **yes** |
 | I-Have | **yes** | - |
 
-### Virtual device (Device 389119)
+### Virtual devices (389119-389121), `--mode vn`
 
 | Service | Initiate | Execute |
 |---|:---:|:---:|
 | ReadProperty | no | **yes** |
-| Who-Is | no | **yes** |
+| WriteProperty | no | **yes** (Analog Output 1, Binary Output 1) |
+| Who-Is | no | **yes** - not while its foreign device is offline |
 | I-Am | **yes** | - |
-| Who-Has | no | **yes** |
+| Who-Has | no | **yes** - not while its foreign device is offline |
 | I-Have | **yes** | - |
 
-An unsolicited I-Am is broadcast for BOTH devices at start-up, and again on
-the `r` key, both from the gateway's one Network Port (the virtual device has
-no socket of its own).
+### Network layer, `--mode vn`
 
-Any other confirmed service on either device - including WriteProperty or
-DeviceCommunicationControl sent to the virtual device - is rejected. That
-rejection is part of the profile boundary, not a limitation to work around.
+| Message | Initiate | Execute |
+|---|:---:|:---:|
+| Who-Is-Router-To-Network | no | **yes** (the stack's virtual router) |
+| I-Am-Router-To-Network | **yes** (broadcast at start-up and on the `r` key; answer to Who-Is-Router-To-Network) | - |
+
+DeviceCommunicationControl sent to a virtual device is rejected; any service
+not listed is rejected. That rejection is part of the profile boundary.
 
 ## 5. Segmentation capability
 
-Segmentation is **not supported** in either direction, on either device
+Segmentation is **not supported** in either direction, on any device
 (`Segmentation_Supported` = `no-segmentation`). `Max_APDU_Length_Accepted` is
 1476 octets, the BACnet/IP maximum.
 
 ## 6. Standard object types supported
 
-No object is dynamically creatable or deletable. On the gateway, only the
-three commandable outputs' `Present_Value` is writable (via the standard
-16-slot `Priority_Array`); every other property, on both devices, is
-read-only.
+No object is dynamically creatable or deletable. The only writable property
+is `Present_Value` of the mapped Analog and Binary Outputs (commandable, the
+standard 16-slot `Priority_Array`).
 
-| Object type | Device | Instance | Object_Name | Optional properties supported |
-|---|---|:---:|---|---|
-| Device | gateway | 389019 | Chipkin Example B-GW | Description |
-| Analog Input | gateway | 1 | Bronze | - |
-| Binary Input | gateway | 1 | Emerald | - |
-| Multi-State Input | gateway | 1 | Hot Pink | State_Text |
-| Analog Output | gateway | 1 | Chartreuse | - |
-| Binary Output | gateway | 1 | Fuchsia | - |
-| Multi-State Output | gateway | 1 | Indigo | - |
-| Network Port | gateway | 1 | Vermilion | - |
-| Network Port | gateway | 2 | (unnamed) | - |
-| Device | virtual (389119) | 389119 | Chipkin Example B-GW (virtual) | Description |
-| Analog Input | virtual (389119) | 1 | Bronze | - |
-| Network Port | virtual (389119) | 1 | (unnamed) | - |
+| Object type | Mode | Device | Instance | Object_Name | Optional properties supported |
+|---|---|---|:---:|---|---|
+| Device | both | gateway | 389019 | Chipkin Example B-GW | Description |
+| Network Port | both | gateway | 1 | Vermilion | - |
+| Analog Input | eo | gateway | 1, 2, 3 | Bronze, Bronze 2, Bronze 3 | Description, Reliability |
+| Analog Output | eo | gateway | 1, 2, 3 | Chartreuse, Chartreuse 2, Chartreuse 3 | Description, Reliability |
+| Binary Output | eo | gateway | 1, 2, 3 | Fuchsia, Fuchsia 2, Fuchsia 3 | Description, Reliability |
+| Network Port | vn | gateway | 2 | Vermilion 2 | - (virtual network 100, stack-created) |
+| Device | vn | virtual | 389119, 389120, 389121 | Chipkin Example B-GW (Boiler / Air Handler / Chiller) | Description |
+| Analog Input | vn | each virtual | 1 | Bronze | Description, Reliability |
+| Analog Output | vn | each virtual | 1 | Chartreuse | Description, Reliability |
+| Binary Output | vn | each virtual | 1 | Fuchsia | Description, Reliability |
+| Network Port | vn | each virtual | 1 | Vermilion | - (stack-created) |
 
-The gateway's device instance is configurable at run time with `--deviceID`
-(BACnet requires the device instance to be configurable). The virtual
-device's instance (`389119`) is fixed at the gateway's default instance + 100
-and does **not** move with `--deviceID`.
+The gateway's device instance is configurable at run time with `--deviceID`.
+The virtual devices' instances are fixed and do **not** move with it.
 
 ## 7. Data link layer options
 
 **BACnet/IP (Annex J)**, UDP port 47808 (0xBAC0) by default, configurable at
-run time with `--port`. One socket serves both devices.
+run time with `--port`. One socket serves every device.
 
 BBMD is not supported, Foreign Device registration is not supported, and
-BACnet/SC, MS/TP, Ethernet (Annex H) and PTP are not supported.
+BACnet/SC, MS/TP, Ethernet and PTP are not supported.
 
 ## 8. Device address binding
 
-Static device binding is **not supported**. Neither device initiates a
-confirmed request, so neither needs to bind a peer.
+Static device binding is **not supported**. No device initiates a confirmed
+BACnet request, so none needs to bind a peer.
 
 ## 9. Networking options
 
-The gateway is a **virtual router**: `BACnetStack_AddVirtualNetwork` gives it
-a second, virtual Network Port (instance 2) and virtual network 100, behind
-which `BACnetStack_AddDeviceToVirtualNetwork` places the virtual device. A
-routed request to the virtual device carries DNET 100 and the virtual
-device's MAC address on that network, which the stack derives from the device
-instance itself.
+`--mode eo`: not a router.
 
-This is **not** physical inter-datalink routing (that is B-RTR's F-ROUTER/
-F-MULTIPORT profile, a different stack code path with a different
-limitation); the virtual network has no second physical datalink to
-instantiate. The device is not a BBMD and does not register as a foreign
-device.
+`--mode vn`: the gateway is a **virtual router** (Annex H.1.1.1):
+`BACnetStack_AddVirtualNetwork` gives it virtual network 100 and Network Port
+2; each virtual device sits on network 100 with the 3-octet form of its device
+instance as its address (389119 = `05 EF FF`). A client reaches it with DNET
+100 / DADR, and its answers come back with SNET 100 / SADR. This is not
+physical inter-datalink routing (B-RTR). The device is not a BBMD and does not
+register as a foreign device.
 
 ## 10. Character sets supported
 
@@ -190,7 +185,7 @@ handle data in all character sets.
 <!-- OBJECTS-PROPERTIES:BEGIN (generated by tools/gen-objects-properties.py from docs/objects.json - do not edit here) -->
 Every object this example creates, and every REQUIRED property of each (per ANSI/ASHRAE 135-2024 clause 12 and the stack's `docs/property-profile-reference.md`), plus the optional properties the example turns on. **Served by** says who answers a ReadProperty: the **stack** generates it, or the **app** serves it from a `GetProperty*` callback in `main.cpp`. A ⚠ row is a required property the app does not serve and the stack would fill with a default - that is a defect, not a feature.
 
-### Device 389019 "Chipkin Example B-GW" - THE GATEWAY device; vendor 389 (Chipkin Automation Systems); instance configurable with --deviceID. The stack rows are device-wide facts only the stack knows - the protocol version and revision it implements, the services and object types it was configured with (from this example's own BACnetStack_SetServiceEnabled/AddObject calls), the live object list and address-binding table. The accepted rows are the stack's configured defaults for APDU limits, segmentation, system status and database revision; an application that answered them from its own constants could contradict the stack, so this example does not
+### Device 389019 "Chipkin Example B-GW" - THE GATEWAY device, both modes; vendor 389 (Chipkin Automation Systems); instance configurable with --deviceID. --mode eo: its Object_List is itself, Network Port 1 and the nine mapped objects below (11). --mode vn: itself and Network Ports 1 and 2 (3). The stack rows are device-wide facts only the stack knows - the protocol version and revision it implements, the services and object types it was configured with, the live object list and address-binding table. The accepted rows are the stack's configured defaults for APDU limits, segmentation, system status and database revision; an application that answered them from its own constants could contradict the stack, so this example does not
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -217,101 +212,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Database_Revision | Unsigned | stack default, accepted (Generic UnsignedInteger default: `0`) | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Analog Input 1 "Bronze" - belongs to the GATEWAY device (389019). REAL, degrees Celsius; starts at 21.5; read-only; nudged by the up/down keys
-
-| Property | Datatype | Served by | Writable |
-|---|---|---|:---:|
-| Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | app | no |
-| Object_Type | BACnetObjectType | stack | no |
-| Present_Value | Real | app | no |
-| Status_Flags | BACnetStatusFlags | stack | no |
-| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
-| Out_Of_Service | Boolean | app | no |
-| Units | BACnetEngineeringUnits | app | no |
-| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
-
-### Binary Input 1 "Emerald" - belongs to the GATEWAY device (389019). starts inactive; read-only
-
-| Property | Datatype | Served by | Writable |
-|---|---|---|:---:|
-| Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | app | no |
-| Object_Type | BACnetObjectType | stack | no |
-| Present_Value | BACnetBinaryPV | app | no |
-| Status_Flags | BACnetStatusFlags | stack | no |
-| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
-| Out_Of_Service | Boolean | app | no |
-| Polarity | BACnetPolarity | app | no |
-| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
-
-### Multi-state Input 1 "Hot Pink" - belongs to the GATEWAY device (389019). state 1 of 3: On, Off, Auto; read-only
-
-| Property | Datatype | Served by | Writable |
-|---|---|---|:---:|
-| Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | app | no |
-| Object_Type | BACnetObjectType | stack | no |
-| Present_Value | Unsigned | app | no |
-| Status_Flags | BACnetStatusFlags | stack | no |
-| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
-| Out_Of_Service | Boolean | app | no |
-| Number_Of_States | Unsigned | app | no |
-| State_Text *(optional, enabled)* | BACnetARRAY[N] of CharacterString | app | no |
-| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
-
-### Analog Output 1 "Chartreuse" - belongs to the GATEWAY device (389019). REAL setpoint, default 20.0 C; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyReal/GetPropertyBool
-
-| Property | Datatype | Served by | Writable |
-|---|---|---|:---:|
-| Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | app | no |
-| Object_Type | BACnetObjectType | stack | no |
-| Present_Value | Real | stack | yes |
-| Status_Flags | BACnetStatusFlags | stack | no |
-| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
-| Out_Of_Service | Boolean | app | no |
-| Units | BACnetEngineeringUnits | app | no |
-| Priority_Array | BACnetARRAY[16] of BACnetOptionalReal | stack | no |
-| Relinquish_Default | Real | app | no |
-| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
-| Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
-
-### Binary Output 1 "Fuchsia" - belongs to the GATEWAY device (389019). active/inactive, default inactive; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyEnumerated/GetPropertyBool
-
-| Property | Datatype | Served by | Writable |
-|---|---|---|:---:|
-| Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | app | no |
-| Object_Type | BACnetObjectType | stack | no |
-| Present_Value | BACnetBinaryPV | stack | yes |
-| Status_Flags | BACnetStatusFlags | stack | no |
-| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
-| Out_Of_Service | Boolean | app | no |
-| Polarity | BACnetPolarity | app | no |
-| Priority_Array | BACnetARRAY[16] of BACnetOptionalBinaryPV | stack | no |
-| Relinquish_Default | BACnetBinaryPV | app | no |
-| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
-| Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
-
-### Multi-state Output 1 "Indigo" - belongs to the GATEWAY device (389019). state 1 of 3, default state 1; commandable via a 16-slot Priority_Array (WriteProperty, DS-WP-B) - Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyUnsignedInteger/GetPropertyBool
-
-| Property | Datatype | Served by | Writable |
-|---|---|---|:---:|
-| Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | app | no |
-| Object_Type | BACnetObjectType | stack | no |
-| Present_Value | Unsigned | stack | yes |
-| Status_Flags | BACnetStatusFlags | stack | no |
-| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
-| Out_Of_Service | Boolean | app | no |
-| Number_Of_States | Unsigned | app | no |
-| Priority_Array | BACnetARRAY[16] of BACnetOptionalUnsigned | stack | no |
-| Relinquish_Default | Unsigned | app | no |
-| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
-| Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
-
-### Network Port 1 "Vermilion" - belongs to the GATEWAY device (389019). BACnet/IP, the device's one physical port - Network_Number is NOT configured here (0/unknown), unlike B-RTR's ports. Network_Type/Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments at start-up. Changes_Pending is likewise computed and answered natively. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal).
+### Network Port 1 "Vermilion" - the GATEWAY's BACnet/IP port, both modes. Network_Number is NOT configured (0/unknown). Network_Type/Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments at start-up; Changes_Pending is computed and answered natively. Reliability has no fault condition this example detects, so it is accepted at the generic default
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -326,22 +227,76 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Changes_Pending | Boolean | app | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Network Port 2 "(unnamed)" - belongs to the GATEWAY device (389019). Created internally and fully populated by BACnetStack_AddVirtualNetwork() for the virtual network (100) - this application registers no callback for it and never calls SetPropertyEnabled/SetPropertyWritable on it. Verified on the wire: Object_Name reads back the stack's generic default 'undefined' (no GetPropertyCharacterString case matches it); Network_Type reads back 'virtual' (7), confirming the stack itself created and typed this port correctly.
+### Analog Input 1 "Bronze" - --mode eo, on the GATEWAY (389019): instance n is slave unit n, named with the colour and n for n > 1 (one entry stands for instances 1-3). Reads input register 0 of its slave (measured temperature, C x 10). REAL, degrees Celsius; Present_Value is the gateway's cached value from the last poll, still served while the slave is offline. Reliability is no-fault-detected, or communication-failure while the slave is offline - the stack builds Status_Flags (FAULT) from it. Event_State reads normal (no intrinsic alarming)
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
 | Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | stack default, accepted (the literal string `"undefined"` (non-Device objects only)) | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Present_Value | Real | app | no |
+| Description *(optional, enabled)* | CharacterString | app | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Reliability *(optional, enabled)* | BACnetReliability | app | no |
+| Out_Of_Service | Boolean | app | no |
+| Units | BACnetEngineeringUnits | app | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### Analog Output 1 "Chartreuse" - --mode eo, on the GATEWAY (389019): instance n is slave unit n, named with the colour and n for n > 1 (one entry stands for instances 1-3). Writes holding register 0 of its slave (setpoint, C x 10). Commandable via a 16-slot Priority_Array (Annex H.2.1.3); Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyReal/GetPropertyBool. The winning value is written through to the register (write caching, Annex H.2.1.1). Relinquish_Default 65.0 / 13.0 / 7.0 for units 1 / 2 / 3
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Present_Value | Real | stack | yes |
+| Description *(optional, enabled)* | CharacterString | app | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Reliability *(optional, enabled)* | BACnetReliability | app | no |
+| Out_Of_Service | Boolean | app | no |
+| Units | BACnetEngineeringUnits | app | no |
+| Priority_Array | BACnetARRAY[16] of BACnetOptionalReal | stack | no |
+| Relinquish_Default | Real | app | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+| Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
+
+### Binary Output 1 "Fuchsia" - --mode eo, on the GATEWAY (389019): instance n is slave unit n, named with the colour and n for n > 1 (one entry stands for instances 1-3). Writes coil 0 of its slave (enable). Commandable via a 16-slot Priority_Array; Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyEnumerated/GetPropertyBool; the winning value is written through to the coil. Relinquish_Default active / active / inactive for units 1 / 2 / 3
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Present_Value | BACnetBinaryPV | stack | yes |
+| Description *(optional, enabled)* | CharacterString | app | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Reliability *(optional, enabled)* | BACnetReliability | app | no |
+| Out_Of_Service | Boolean | app | no |
+| Polarity | BACnetPolarity | app | no |
+| Priority_Array | BACnetARRAY[16] of BACnetOptionalBinaryPV | stack | no |
+| Relinquish_Default | BACnetBinaryPV | app | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+| Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
+
+### Network Port 2 "Vermilion 2" - --mode vn only, on the GATEWAY: the port to virtual network 100, created and populated by BACnetStack_AddVirtualNetwork() (Network_Type virtual, Network_Number 100, quality configured). The app serves only its Object_Name and Out_Of_Service
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
 | Object_Type | BACnetObjectType | stack | no |
 | Status_Flags | BACnetStatusFlags | stack | no |
 | Reliability | BACnetReliability | stack default, accepted (Generic Enumerated default: `0`) | no |
-| Out_Of_Service | Boolean | stack default, accepted (Generic Boolean default: `false`) | no |
+| Out_Of_Service | Boolean | app | no |
 | Network_Type | BACnetNetworkType | stack default, accepted (Generic Enumerated default: `0`) | no |
 | Protocol_Level | BACnetProtocolLevel | stack default, accepted (Generic Enumerated default: `0`) | no |
 | Changes_Pending | Boolean | stack default, accepted (Generic Boolean default: `false`) | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Device 389119 "Chipkin Example B-GW (virtual)" - THE VIRTUAL device (GW-VN-B) - the thing this gateway represents, NOT the gateway device above. Added with BACnetStack_AddDeviceToVirtualNetwork after BACnetStack_AddVirtualNetwork(389019, network 100, ...); instance is the gateway's instance + 100, fixed (not moved by --deviceID). It is a SEPARATE device with its own Object_List, reached through the gateway's one physical Network Port (it has no socket of its own) - its own Network Port object (instance 1, stack-created) is listed separately below. The stack and accepted rows are exactly as for the gateway above, since this device is set up with the same calls.
+### Device 389119 "Chipkin Example B-GW (Boiler)" - --mode vn only: one VIRTUAL device per slave on virtual network 100 - 389119 "Chipkin Example B-GW (Boiler)", 389120 "... (Air Handler)", 389121 "... (Chiller)" (one entry stands for the three). Added with BACnetStack_AddDeviceToVirtualNetwork; instances fixed (not moved by --deviceID). Its Object_List is itself, the three mapped objects below and its own stack-created Network Port (5). Reached through the gateway with DNET 100, DADR = the 3-octet instance. While its slave is offline it does not answer Who-Is/Who-Has (Annex H.2.2.1); its reads are still answered (a stack gap - README Known gaps). The stack and accepted rows are as for the gateway
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -368,7 +323,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Database_Revision | Unsigned | stack default, accepted (Generic UnsignedInteger default: `0`) | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Analog Input 1 "Bronze" - belongs to the VIRTUAL device (389119), NOT the gateway's Analog Input 1 above - same object type/instance/name by series convention, but a completely separate object under a separate device, proving GW-VN-B: the represented device has something to actually be read. REAL, degrees Celsius; starts at 19.0; read-only; independent of the gateway's own Analog Input 1
+### Analog Input 1 "Bronze" - --mode vn, on EACH virtual device (389119 / 389120 / 389121 for units 1 / 2 / 3), always instance 1 (one entry stands for the three devices). Reads input register 0 of its slave (measured temperature, C x 10). REAL, degrees Celsius; Present_Value is the gateway's cached value from the last poll, still served while the slave is offline. Reliability is no-fault-detected, or communication-failure while the slave is offline - the stack builds Status_Flags (FAULT) from it. Event_State reads normal (no intrinsic alarming)
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -376,18 +331,58 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Object_Name | CharacterString | app | no |
 | Object_Type | BACnetObjectType | stack | no |
 | Present_Value | Real | app | no |
+| Description *(optional, enabled)* | CharacterString | app | no |
 | Status_Flags | BACnetStatusFlags | stack | no |
 | Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Reliability *(optional, enabled)* | BACnetReliability | app | no |
 | Out_Of_Service | Boolean | app | no |
 | Units | BACnetEngineeringUnits | app | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Network Port 1 "(unnamed)" - belongs to the VIRTUAL device (389119). Created internally and fully populated by BACnetStack_AddDeviceToVirtualNetwork() - not the gateway's own Network Port 2 above, a separate object under the virtual device. This application registers no callback for it. Verified on the wire: Object_Name reads back the stack's generic default 'undefined'; Network_Type reads back 'virtual' (7).
+### Analog Output 1 "Chartreuse" - --mode vn, on EACH virtual device (389119 / 389120 / 389121 for units 1 / 2 / 3), always instance 1 (one entry stands for the three devices). Writes holding register 0 of its slave (setpoint, C x 10). Commandable via a 16-slot Priority_Array (Annex H.2.1.3); Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyReal/GetPropertyBool. The winning value is written through to the register (write caching, Annex H.2.1.1). Relinquish_Default 65.0 / 13.0 / 7.0 for units 1 / 2 / 3
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
 | Object_Identifier | BACnetObjectIdentifier | stack | no |
-| Object_Name | CharacterString | stack default, accepted (the literal string `"undefined"` (non-Device objects only)) | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Present_Value | Real | stack | yes |
+| Description *(optional, enabled)* | CharacterString | app | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Reliability *(optional, enabled)* | BACnetReliability | app | no |
+| Out_Of_Service | Boolean | app | no |
+| Units | BACnetEngineeringUnits | app | no |
+| Priority_Array | BACnetARRAY[16] of BACnetOptionalReal | stack | no |
+| Relinquish_Default | Real | app | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+| Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
+
+### Binary Output 1 "Fuchsia" - --mode vn, on EACH virtual device (389119 / 389120 / 389121 for units 1 / 2 / 3), always instance 1 (one entry stands for the three devices). Writes coil 0 of its slave (enable). Commandable via a 16-slot Priority_Array; Present_Value/Priority_Array/Current_Command_Priority are resolved by the stack from the slots the app serves through GetPropertyEnumerated/GetPropertyBool; the winning value is written through to the coil. Relinquish_Default active / active / inactive for units 1 / 2 / 3
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Present_Value | BACnetBinaryPV | stack | yes |
+| Description *(optional, enabled)* | CharacterString | app | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Reliability *(optional, enabled)* | BACnetReliability | app | no |
+| Out_Of_Service | Boolean | app | no |
+| Polarity | BACnetPolarity | app | no |
+| Priority_Array | BACnetARRAY[16] of BACnetOptionalBinaryPV | stack | no |
+| Relinquish_Default | BACnetBinaryPV | app | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+| Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
+
+### Network Port 1 "Vermilion" - --mode vn only, inside EACH virtual device: created and populated by BACnetStack_AddDeviceToVirtualNetwork() (Network_Type virtual). The app serves only its Object_Name
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
 | Object_Type | BACnetObjectType | stack | no |
 | Status_Flags | BACnetStatusFlags | stack | no |
 | Reliability | BACnetReliability | stack default, accepted (Generic Enumerated default: `0`) | no |

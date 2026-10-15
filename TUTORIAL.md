@@ -1,249 +1,207 @@
 # Tutorial - extending and reviewing the B-GW example
 
 [README.md](README.md) says what this example *is*. This document is the
-*how*: how to extend it into your own gateway, who serves which property on
-which device, how to review the result for conformance, and what goes wrong
-when you get it subtly right.
+*how*: how to put your own foreign-bus driver behind it, how to add points,
+who serves which property, how to review the result, and what goes wrong when
+you get it subtly right.
 
-Read this once before you start changing `main.cpp`. The most expensive
-mistake in this example is silent, and it is specific to a device that
-answers for TWO devices from one process - see
-[Dispatch on deviceInstance first](#dispatch-on-deviceinstance-first).
-
-- [Extending the example](#extending-the-example)
+- [The shape of the gateway](#the-shape-of-the-gateway)
+- [Putting your own driver behind the seam](#putting-your-own-driver-behind-the-seam)
+- [Adding a point to the register map](#adding-a-point-to-the-register-map)
+- [When a foreign device goes offline](#when-a-foreign-device-goes-offline)
 - [Dispatch on deviceInstance first](#dispatch-on-deviceinstance-first)
 - [What each object type needs you to serve](#what-each-object-type-needs-you-to-serve)
 - [Who serves what: the application or the stack?](#who-serves-what-the-application-or-the-stack)
 - [Reviewing your device](#reviewing-your-device)
 - [Troubleshooting](#troubleshooting)
 
-## Extending the example
+## The shape of the gateway
 
-The example is intentionally small so it's easy to change.
-
-**Change a sensor's value or name** - edit the constants / callbacks in
-`main.cpp` (e.g. `g_analogInput1Value` for the gateway's Analog Input, or
-`g_virtualAnalogInput1Value` for the virtual device's - they are independent,
-see below).
-
-**Change the device identity before you ship** - vendor ID, vendor name,
-model names, descriptions, firmware revision and BOTH devices' names are all
-in the `CHANGE ALL OF THIS BEFORE YOU SHIP` block at the top of `main.cpp`,
-with a per-field note on each saying what to change it to. That block is the
-authoritative checklist; it is in the source rather than here so it cannot be
-skipped by someone who only reads the code. It covers the gateway's
-`VIRTUAL_DEVICE_INSTANCE` and `VIRTUAL_NETWORK_NUMBER` too - both must stay
-unique across the internetwork, exactly like a device instance.
-
-### Add a second commandable output
-
-Read this whole recipe before starting - the last two steps are the ones that
-are easy to miss and the ones BTL will fail you for.
-
-> **Why forgetting a step is SILENT, not loud.** Most of the `GetProperty*`
-> callbacks match on **deviceInstance**, then object type **and** instance
-> (`objectInstance == ANALOG_OUTPUT_INSTANCE`), so a new instance falls
-> through every one of them. `GetPropertyBool`'s `Out_Of_Service` case is the
-> exception: it matches on type only, so it works for a new instance for
-> free.
->
-> Here is the part that matters, and it is the opposite of what most people
-> assume: falling through a callback does **not** reliably produce an error.
-> The stack errors only for the few properties it refuses to invent -
-> `Present_Value` on a non-commandable object, `Number_Of_States`,
-> `Relinquish_Default` on a commandable object with no `GetCommandable()`
-> match, `Local_Date`, `Local_Time`, and a Network Port's `APDU_Length`. For
-> everything else it **silently substitutes a default**:
->
-> | Property | If you forget to serve it | Loud? |
-> |---|---|:--:|
-> | `Present_Value` (non-commandable) | Error (`read-access-denied`) | yes |
-> | `Present_Value` (commandable, no `GetCommandable()` entry) | Error | yes |
-> | `Object_Name` | reads back as the string **`"undefined"`** | **no** |
-> | `Units` | reads back as **`no-units` (95)** | **no** |
-> | `Relinquish_Default` (no `GetCommandable()` entry) | Error | yes |
-> | `Out_Of_Service` | served on type alone - works by accident | n/a |
->
-> **Doesn't the `errorCode` out-parameter fix this?** Only if you use it, and
-> only where it is right to. Each `GetProperty*`/`SetProperty*` callback ends
-> with a `uint32_t* errorCode` that the stack presets to `success` and reads
-> only when you return `false`, so you *can* turn any decline into a chosen
-> BACnet error. But ending every callback with
-> `*errorCode = unknown-property` breaks the device: the stack's
-> decline-and-fabricate path is what answers required properties an
-> application is not expected to serve - the Device's
-> `Max_APDU_Length_Accepted`, `APDU_Timeout` and `Number_Of_APDU_Retries`
-> among them. Name an error on the catch-all and those start failing instead
-> of answering. Set `errorCode` only where *this device* knows the read is
-> wrong: `main.cpp` does it for `State_Text` with an out-of-range array
-> index, for `DeviceCommunicationControl`'s reject paths, and for a
-> `SetProperty*` value out of range. The table above is still how the
-> fall-through behaves for everything else, and the diff below is still what
-> catches a missed step.
->
-> It is worse than "wrong value": the object's `Property_List` **still
-> advertises `Units` (117)**. So the object actively claims to have the
-> property, and then answers with a default. Nothing on the wire says you
-> forgot anything.
-
-```cpp
-// 1) a new instance number (in section 1, with the other output instances).
-//    Naming: a second object of a type is "<Colour> 2" - so Analog Output 2
-//    is "Chartreuse 2", NOT a new colour. Each object TYPE owns one colour
-//    series-wide.
-static const uint32_t ANALOG_OUTPUT_2_INSTANCE = 2;   // "Chartreuse 2"
-
-// 2) a second Commandable and a GetCommandable() case for it. GetCommandable
-//    is the ONE place that decides which struct a (deviceInstance, type,
-//    instance) triple maps to - every Get/SetProperty* callback for a
-//    commandable property goes through it. Miss this and the object silently
-//    behaves as if it were never made commandable: WriteProperty gets
-//    read-access-denied instead of succeeding, no ⚠ in the PICS, and nothing
-//    in Property_List looks wrong until a client actually tries to write it.
-static Commandable g_analogOutput2 = { { false }, { 0 }, 20.0 };
-//   in GetCommandable(): add
-//   if (objectType == OBJECT_TYPE_ANALOG_OUTPUT && objectInstance == ANALOG_OUTPUT_2_INSTANCE) {
-//       return &g_analogOutput2;
-//   }
-
-// 3) add the object (in main, next to the other BACnetStack_AddObject calls
-//    for the GATEWAY - the virtual device has no outputs).
-if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_ANALOG_OUTPUT, ANALOG_OUTPUT_2_INSTANCE)) {
-    printf("Error: Failed to add Analog Output 2 (Chartreuse 2).\n");
-    return 1;
-}
-
-// 4) DO NOT SKIP: enable Priority_Array/Relinquish_Default and make
-//    Present_Value writable, exactly like the loop over `outputs[]` already
-//    does for the other three outputs - add this instance to that array
-//    rather than hand-rolling a fourth copy of the three
-//    BACnetStack_SetPropertyEnabled/SetPropertyWritable calls.
-
-// 5) DO NOT SKIP: serve Units, in GetPropertyEnumerated - the existing check
-//    reads `objectInstance == ANALOG_OUTPUT_INSTANCE`, instance 1 - so
-//    without this, reading Analog Output 2's Units returns `no-units` and
-//    the object is NON-CONFORMANT. It will still accept WriteProperty and
-//    its Present_Value will read back perfectly, so the device looks healthy
-//    right up until BTL certification.
+```
+ BACnet client  --ReadProperty/WriteProperty-->  CAS BACnet Stack
+                                                     | callbacks (GetProperty*/SetProperty*)
+                                                     v
+                                         main.cpp: the CACHE (GatewayedSlave)
+                                           ^ poll results          | winning values
+                                           |                       v
+                                  ServicePoll()           ServiceWriteThrough()
+                                           \                       /
+                                            ForeignBus.h  <-- THE SEAM
+                                                     |
+                           simulation/SimulatedForeignBus.cpp   (or YOUR driver)
 ```
 
-Then re-run the README's Verify steps **against Analog Output 2**, not just
-Analog Output 1 - read every required property AND write to it, then diff
-both against Analog Output 1. Any property that comes back `"undefined"`,
-`no-units`, or rejects a write that instance 1 accepts is a step you missed.
-Because the failure is silent (see the table above), this diff is the only
-thing that catches it.
+Two rules hold the design together:
+
+1. **BACnet is answered from the cache, never from the bus.** A callback that
+   waited on a slow foreign device would hold the stack's one thread and
+   time out the client (Annex H.2.1.4). `ServicePoll()` keeps the cache
+   fresh on each slave's own poll cycle; the callbacks only read it.
+2. **The bus is asynchronous.** `ForeignBus::StartRead` / `StartWrite` return
+   at once with a transaction id; `CheckTransaction` reports `Pending`,
+   `Done` or `Timeout` on a later pass. Every pass of the main loop calls
+   `BACnetStack_Tick()` and `ServiceForeignBus()` and neither ever blocks.
+
+## Putting your own driver behind the seam
+
+`simulation/` is **Simulation** - pretend field devices so the example has
+something to gateway. A real product replaces it:
+
+1. Write `MyModbusTcpBus.cpp` (or RTU, or your PLC's protocol...) that
+   implements every function in [ForeignBus.h](ForeignBus.h):
+   - `Start()` - open the serial port / connect the TCP sockets.
+   - `Service(now)` - send queued requests, read answers that have arrived,
+     expire requests older than your response timeout. Non-blocking: use
+     non-blocking sockets or a worker thread, never a blocking `recv`.
+   - `StartRead` / `StartWrite` - queue a request, return an id (never 0).
+   - `CheckTransaction` - report it; forget the id once `Done` or `Timeout`.
+2. In `CMakeLists.txt`, replace `SIMULATION_SOURCES` with your file and delete
+   the `simulation/` folder - including `SimulationControl.cpp`, the Wire
+   Tests' back door, which has no place in a product.
+3. Remove the three `SimulatedForeignBus::` uses in `main.cpp`: the register
+   addresses (move them into your own register-map header), the slave names in
+   the Description strings, and the `k` / up / down keys, which reach inside
+   the simulation.
+
+`main.cpp` does not otherwise change: the cache, the poll scheduler, the
+write-through and every BACnet callback stay as they are. If your protocol
+reads several registers in one request (Modbus function 3 reading a block),
+make one transaction return several values - widen `CheckTransaction`'s
+out-parameter - rather than issuing one request per point.
+
+## Adding a point to the register map
+
+Say each slave also has a discrete input (on/off status) you want as a Binary
+Input. Read the whole recipe first - the silent steps are at the end.
+
+1. **The foreign side**: its address in the register map, and (for the
+   simulation) a value in `SimulatedSlave` and a `FindPoint` case.
+2. **The cache**: a field in `GatewayedSlave` (`bool runStatus;`).
+3. **Polling**: read it in `ServicePoll` - a second transaction, or one block
+   read (see above). Only `Done` updates the cache; a `Timeout` counts towards
+   `OFFLINE_AFTER_FAILED_POLLS` exactly like the existing poll.
+4. **The mapping**: a `PointKind::RunStatus`, and an `OBJECT_TYPE_BINARY_INPUT`
+   branch in `FindMappedPoint`.
+5. **The object**: `OBJECT_TYPE_BINARY_INPUT` in `AddMappedObjects`'
+   `objectTypes[]`, skipped by the commandable block like the Analog Input.
+   Reliability and Description are enabled for it by the same loop.
+6. **The callbacks** - `Present_Value` (Enumerated) and `Polarity` in
+   `GetPropertyEnumerated`, a colour name in `MappedObjectName` (Binary Input
+   is "Emerald", per the series colour table), a register in
+   `MappedObjectDescription`.
+7. **DO NOT SKIP: `Reliability`.** The existing `Reliability` branch answers
+   any mapped point, so it covers the new one *if* `FindMappedPoint` finds it.
+   If it does not, the stack's default is `no-fault-detected` - the new object
+   stays healthy while its slave is dead, and nothing on the wire says so.
+8. **DO NOT SKIP: a Wire Test.** Add the check to `tests/mapping_test.py`
+   (it follows the register) and to `tests/failure_mode_test.py`'s
+   `OBJECT_TYPES` (it faults with its slave), then remove the feature and
+   confirm the check fails.
+
+> **Why a forgotten step is SILENT.** Falling through a callback does not
+> reliably produce an error: the stack errors only for the few properties it
+> refuses to invent (`Present_Value`, `Relinquish_Default` on a commandable
+> object). For the rest it substitutes a default - `Object_Name` reads
+> **`"undefined"`**, `Units` reads **`no-units`**, `Reliability` reads
+> **`no-fault-detected`** - while the object's `Property_List` still
+> advertises the property. Nothing on the wire says you forgot anything. The
+> `uint32_t* errorCode` out-parameter does not save you either: setting it on
+> every catch-all breaks the required properties the stack is meant to answer
+> (`Max_APDU_Length_Accepted`, `APDU_Timeout`, ...). Set it only where this
+> device knows the request is wrong (`SetPropertyEnumerated`'s out-of-range
+> value, `DeviceCommunicationControl`'s rejects).
+
+## When a foreign device goes offline
+
+`ServicePoll` counts unanswered polls; at `OFFLINE_AFTER_FAILED_POLLS` (2) in
+a row `SlaveWentOffline` runs, and the first answered poll after that runs
+`SlaveCameBack`. What they do depends on the mode, because Annex H asks
+different things of the two kinds of gateway:
+
+| | `--mode eo` - Annex H.2.3.2 | `--mode vn` - Annex H.2.2.1 |
+|---|---|---|
+| What the clause asks | Show it in Reliability and the FAULT flag; reads still return values, "not errors". | Send no I-Am / I-Have for it, and "remain silent" to requests directed to it. |
+| What this example does | Reliability = `communication-failure` (the stack sets FAULT from it); reads answered from the cache. | Who-Is and Who-Has switched off for that virtual device (no I-Am / I-Have); reads still answered, from the cache, with Reliability `communication-failure`. |
+| Gap | - | **Silence is not possible today** - no customer export makes a virtual device ignore a confirmed request. See README "Known gaps". |
+
+In both modes the outputs' pending writes are marked unwritten when a slave
+goes offline, so the current winning value is written again as soon as it is
+back (writes made while it was offline included) - Annex H.2.1.1's write
+caching, carried across the outage. A write the slave does not acknowledge
+(a timeout - or, from a real driver, a refusal such as a Modbus exception)
+is retried one poll cycle later, not on every pass, and logged.
+
+Tune `OFFLINE_AFTER_FAILED_POLLS` to your bus: one lost frame on a noisy RS-485
+line should not flap a whole device into fault, but an operator should not
+wait a minute to see a dead one either.
 
 ## Dispatch on deviceInstance first
 
-This example answers for **two** devices - the gateway (`g_deviceInstance`)
-and the virtual device (`VIRTUAL_DEVICE_INSTANCE`) - from one process, and
-both have an "Analog Input 1 (Bronze)" at the exact same object type and
-instance number. Object type + instance alone cannot tell them apart; only
-`deviceInstance` can. Every `Get/SetProperty*` callback in `main.cpp`
-dispatches on `deviceInstance` **first**, before it looks at object type or
-instance - see the `if (deviceInstance == VIRTUAL_DEVICE_INSTANCE) { ... }`
-block at the top of each one.
-
-**If you add a case to the wrong branch** (e.g. a `GetPropertyReal` case for
-a new virtual-device object placed after the `if (deviceInstance !=
-g_deviceInstance) return false;` gateway guard, instead of inside the virtual
-branch above it), the result is not a compile error and not even a decline -
-it is `unknown-object` or `read-access-denied` for the virtual device only,
-while the identically-named gateway object keeps working. Test EVERY new
-property on BOTH devices, not just the one you were adding it for, and
-address the virtual device with a routed request (DNET 100 - see
-[Reviewing your device](#reviewing-your-device)) so you are actually
-exercising the branch you changed.
+In `--mode vn` this process answers for **four** devices - the gateway and
+three virtual devices - and every virtual device has an "Analog Input 1
+(Bronze)" at the same object type and instance. Only `deviceInstance` tells
+them apart. `FindMappedPoint()` is the ONE place that turns (device, type,
+instance) into a slave and a point kind, in both modes; every callback goes
+through it, so a new point added there works in both modes at once. A callback
+that tested `objectInstance` alone would answer the Boiler's value for all
+three virtual devices - a defect no single-device test catches. The vn half of
+`tests/mapping_test.py` reads two virtual devices for exactly this reason.
 
 ## What each object type needs you to serve
 
-The application must serve every REQUIRED property the stack does not
-generate. It differs per type - this is the checklist, so you do not have to
-infer it:
+The application serves every REQUIRED property the stack does not generate:
 
-| Object type | You must serve | Plus |
+| Object type | You serve | Plus (this gateway) |
 |---|---|---|
-| Analog Input | `Present_Value` (Real), `Object_Name`, `Units` | - |
-| Binary Input | `Present_Value` (Enumerated), `Object_Name` | `Polarity` |
-| Multi-State Input | `Present_Value` (Unsigned), `Object_Name` | `Number_Of_States` |
-| Analog Output (commandable) | `Object_Name`, `Units`, `Relinquish_Default` | Priority_Array slots via `GetCommandable()` |
-| Binary Output (commandable) | `Object_Name`, `Polarity`, `Relinquish_Default` | Priority_Array slots via `GetCommandable()` |
-| Multi-State Output (commandable) | `Object_Name`, `Number_Of_States`, `Relinquish_Default` | Priority_Array slots via `GetCommandable()` |
-
-The virtual device's own Analog Input follows the same Analog Input row -
-it is a second, independent object of that type, not a special case.
+| Analog Input | `Present_Value` (Real), `Object_Name`, `Units`, `Out_Of_Service` | `Reliability`, `Description` |
+| Analog Output (commandable) | `Object_Name`, `Units`, `Relinquish_Default`, `Out_Of_Service`; Priority_Array slots | `Reliability`, `Description` |
+| Binary Output (commandable) | `Object_Name`, `Polarity`, `Relinquish_Default`, `Out_Of_Service`; Priority_Array slots | `Reliability`, `Description` |
+| Device (gateway, and each virtual device) | `Object_Name`, `Vendor_Name`, `Vendor_Identifier`, `Model_Name`, `Firmware_Revision`, `Application_Software_Version` | `Description` |
 
 ## Who serves what: the application or the stack?
 
-The single most common question when reading this file is "who answers this
-property?" For the gateway's commandable Analog Output 1 (Chartreuse) - the
-most involved object in this example, since its `Present_Value`,
-`Priority_Array` and `Current_Command_Priority` are resolved by the stack
-from slots the application only stores:
+For a mapped Analog Output - the most involved object, since the stack
+resolves its `Present_Value` from slots the application only stores:
 
 | Property | Served by | How |
 |---|---|---|
-| `Object_Identifier` | **stack** | generated from the object you added |
-| `Object_Type` | **stack** | generated |
-| `Object_List` | **stack** | generated (Device object) |
-| `Property_List` | **stack** | generated |
-| `Status_Flags` | **stack** | generated |
-| `Event_State` | **stack**, sort of | no intrinsic alarming here, so nothing serves it - it reads `normal` only because `normal` is the enumeration's zero value and the stack substitutes a datatype default. Correct by coincidence, not design. |
-| `Out_Of_Service` | **you** | `GetPropertyBool` - matched on object **type only** |
-| `Present_Value` | **stack**, from your data | the stack resolves the highest-priority non-null `Priority_Array` slot (or `Relinquish_Default` if all are null); your `GetPropertyReal` only answers individual `Priority_Array[i]` reads via `ReadPrioritySlot()` |
-| `Priority_Array` | **stack**, from your data | same mechanism - `GetPropertyBool` reports whether slot *i* is set, `GetPropertyReal` reports its value when it is |
-| `Current_Command_Priority` | **stack** | computed from which slot is highest-priority and set |
-| `Relinquish_Default` | **you** | `GetPropertyReal` |
-| `Object_Name` | **you** | `GetPropertyCharString` |
-| `Units` | **you** | `GetPropertyEnumerated` |
+| `Object_Identifier`, `Object_Type`, `Property_List` | **stack** | generated from the object you added |
+| `Status_Flags` | **stack**, from your data | assembled from `Reliability` (FAULT), `Event_State` and `Out_Of_Service`, which it reads back through your callbacks |
+| `Reliability` | **you** | `GetPropertyEnumerated` - `no-fault-detected` or `communication-failure` from the slave's `online` |
+| `Event_State` | **stack** | no intrinsic alarming here; reads `normal` (the datatype default) |
+| `Out_Of_Service` | **you** | `GetPropertyBool` |
+| `Present_Value` | **stack**, from your data | the highest-priority non-null slot, or `Relinquish_Default` |
+| `Priority_Array` | **stack**, from your data | `GetPropertyBool` says whether slot *i* is NULL, `GetPropertyReal` gives its value |
+| `Current_Command_Priority` | **stack** | from which slot wins |
+| `Relinquish_Default`, `Units` | **you** | `GetPropertyReal`, `GetPropertyEnumerated` |
+| `Object_Name`, `Description` | **you** | `GetPropertyCharString` |
 
-A write (`SetPropertyReal` for this object) stores the value in the slot for
-the request's priority via `CommandWrite()`; a NULL write
-(`SetPropertyNull`) relinquishes that slot via `CommandRelinquish()`. The
-stack, not the application, decides what `Present_Value` reads back
-afterwards.
+The gateway resolves the same winner itself (`WinningValue()`) - not to
+answer BACnet, but to know what to write to the slave.
 
-Every object, on both devices, is in [docs/PICS.md](docs/PICS.md).
-
-Going beyond this (alarming, COV, scheduling, physical inter-datalink
-routing) means implementing a richer or different profile - see the series
-table in [README.md](README.md).
+Every object in both modes is in [docs/PICS.md](docs/PICS.md).
 
 ## Reviewing your device
 
-After you have changed anything, review it against the conformance statement
-rather than against "it looked fine in the explorer":
-
-1. Regenerate [docs/PICS.md](docs/PICS.md) after editing `docs/objects.json`
-   (see [Keeping the PICS honest](#keeping-the-pics-honest) below). A ⚠ row
-   is a required property nothing serves.
-2. Read **every** property listed for **every** object on **both** devices
-   with a BACnet client, and compare the value against the PICS.
-   `"undefined"`, `no-units` and `0` are the three shapes a missed callback
-   takes. Reading the virtual device's objects needs a routing-aware client
-   (or DNET 100 / MAC addressed manually) - see README's Verify section for
-   why an unrouted request to the virtual device's `Object_Identifier`
-   correctly fails with `unknown-object`.
-3. Diff a new object of a type against the existing one of that type -
-   including diffing the virtual device's Analog Input against the gateway's
-   own Analog Input 1, which must differ (different `Present_Value`) while
-   both otherwise behave identically. Anything that differs and shouldn't is
-   a callback that matched on instance instead of intent, or - specific to
-   this example - matched on the wrong `deviceInstance` branch.
-4. Confirm the services you do **not** implement are still rejected: for the
-   gateway, anything outside DS-RP-B/DS-WP-B/DM-DDB-B/DM-DOB-B/DM-DCC-B; for
-   the virtual device, WriteProperty and DeviceCommunicationControl (neither
-   is claimed for it).
-5. WriteProperty a commandable output at a priority, re-read it, then write
-   NULL at that priority and confirm it falls back to `Relinquish_Default`.
+1. **Run the Wire Tests** (README "Wire Tests") in both modes. They are the
+   only check here that notices a feature *disappearing*: each one was
+   verified to fail with its feature removed ([tests/README.md](tests/README.md)).
+   A new feature gets a new check, verified the same way - a check that has
+   never failed proves nothing.
+2. Regenerate [docs/PICS.md](docs/PICS.md) after editing `docs/objects.json`
+   (below). A ⚠ row is a required property nothing serves.
+3. Read every property of every object with a BACnet client and compare it to
+   the PICS. `"undefined"`, `no-units` and `0` are the shapes a missed
+   callback takes. In `--mode vn`, read through the gateway (DNET 100).
+4. Pull a slave (`k`) and re-read: every object mapped to it must fault, and
+   no other object may.
 
 ### Keeping the PICS honest
 
 `docs/PICS.md` is partly generated. `docs/objects.json` describes each object
-- one entry per object, per device - and who serves which property; the
-series tool regenerates the object tables from it plus the stack's own
-`docs/property-profile-reference.md` at the pinned commit:
+and who serves which property; the series tool regenerates the object tables
+from it plus the stack's `docs/property-profile-reference.md` at the pinned
+commit:
 
 ```bash
 python tools/gen-objects-properties.py BACnetProfileExample-B-GW-CPP            # rewrite
@@ -252,32 +210,24 @@ python tools/gen-objects-properties.py BACnetProfileExample-B-GW-CPP --check    
 
 (That tool lives in the example-series repository, not in this one. If you
 only have this repository, edit the generated block by hand and keep it
-matching the callbacks in `main.cpp`.)
-
-When you add an object or a property to `main.cpp`, update
-`docs/objects.json` in the same change and regenerate. The `app` list is what
-the callbacks serve; `stack` is a device-wide fact the stack itself computes
-(protocol version/revision, supported services/object types, the live object
-list and address-binding table); `accepted` is for a required property you
-deliberately leave to the stack's other configured default, each one
-justified in the object's `note`. Anything required, not in `app`, not in
-`stack`, and not in `accepted` comes out as a ⚠ row - that is a defect, not a
-feature. Remember there are **two Device entries** (389019 and 389119) and
-**two Network Port entries besides the gateway's physical one** (both
-stack-created, for the virtual network) - a change to one device's objects
-rarely needs a change to the other's.
+matching the callbacks in `main.cpp`.) The `app` list is what the callbacks
+serve; `stack` is a device-wide fact the stack computes; `accepted` is a
+required property deliberately left to the stack's default, justified in the
+object's `note`.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| A ReadProperty naming the virtual device's `Object_Identifier` (`device,389119`) gets `unknown-object` when sent as a plain, unrouted request | **Expected, not your bug.** The virtual device is not on the gateway's local object table - address it via DNET 100 (see README's "F-GATEWAY" section), or use a routing-aware client that resolves this automatically from the virtual device's own I-Am / a Who-Is-Router-To-Network reply. |
-| An unrestricted Who-Is sent directly to the gateway's socket returns I-Am from the gateway only, not the virtual device | **Expected.** A local (non-DNET) Who-Is is scoped to the local network, same as it would be for a device behind a real physical router; broadcast (or restrict) it to DNET 100 to reach the virtual device, exactly as ASHRAE 135 cl. 6.6 describes for any routed network. |
-| On start-up the app prints one red `Error:` line about a UUID not being set | **Expected - this is not your bug.** The stack starts a BACnet/SC datalink this BACnet/IP-only example never configures. Same as every other example in the series. |
+| Analog Input reads `0.0` for the first half second | The cache is empty until the first poll answers. Your product may prefer to start each slave `online = false` (fault until proven otherwise). |
+| Every object of one slave reads Reliability `communication-failure` | The gateway's polls to it time out: the slave is offline, or (with a real driver) the address, unit id or timeout is wrong. The console says `GATEWAY: slave n ... stopped answering`. |
+| A write is acknowledged but the foreign register does not change | The slave is offline - the write is cached and lands when it is back (`GATEWAY: wrote ...`). Or a higher priority slot is still set: read `Priority_Array`. |
+| `--mode vn`: a ReadProperty naming `device,389119` gets `unknown-object` | **Expected.** A virtual device lives on network 100; address it with DNET 100 / DADR (README "Reaching a virtual device"). |
+| `--mode vn`: Who-Is sent to the gateway's socket gets only the gateway's I-Am | **Expected.** A local Who-Is is scoped to the local network; send it to DNET 100 or 65535 to reach the virtual devices. |
+| `--mode vn`: a virtual device stopped answering Who-Is | Its slave is offline (Annex H.2.2.1). It answers again once the slave does. |
+| On start-up one red `Error:` line about a UUID not being set | **Expected.** The stack starts a BACnet/SC datalink this BACnet/IP-only example never configures. |
+| `SIMULATION: test control channel listening ...` | `BGW_SIMULATION_CONTROL_PORT` is set in your environment - that is the Wire Tests' back door. Unset it. |
 | CMake error: *"CAS BACnet Stack adapter not found under: ..."* | Submodules not initialized. Run `git submodule update --init --recursive` (or pass `-D CAS_STACK_DIR=...`). |
-| `CASBACnetStackDLL.h: No such file or directory` | Same - submodules not checked out. |
 | Windows: *"No CMAKE_CXX_COMPILER could be found"* | Install Visual Studio with the "Desktop development with C++" workload, then re-run from a fresh terminal. |
 | First build seems stuck for minutes | Normal - it's compiling ~600 stack files. Only the first build is slow. |
 | App prints *"Failed to bind UDP port 47808"* | Another BACnet program is already using 47808. Stop it, or run with `--port <n>`. |
-| Client sends Who-Is but sees no I-Am from either device | Firewall is blocking UDP 47808, or the client and device are on different subnets (Who-Is is a broadcast). Allow the port; test on the same subnet first. |
-| WriteProperty to a commandable output returns `read-access-denied` | Confirm the request targets `Present_Value` on the GATEWAY's instance (`g_deviceInstance`), not the virtual device (it has no writable objects), and that the priority is 1-16. |

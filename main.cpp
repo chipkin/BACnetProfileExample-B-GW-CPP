@@ -4,92 +4,73 @@
 // =============================================================================
 // BACnet Profile Example - B-GW (Gateway) - C++
 //
-// This example implements the BACnet "B-GW" (Gateway) device profile with the
-// CAS BACnet Stack. It is the B-ASC (Application Specific Controller) example
-// (DS-RP-B + DS-WP-B + DM-DCC-B, plus discovery) PLUS one BACnet virtual
-// network carrying ONE virtual BACnet device - GW-VN-B (Annex K.7.1: a
-// gateway represents a non-BACnet, or otherwise not-directly-reachable, device
-// as a virtual BACnet device on a virtual network behind it).
+// A B-GW connects a non-BACnet network into a BACnet internetwork (135-2024
+// Annex L.7.2). Its Profile Function, in one sentence:
 //
-// A B-GW is a device that:
+//     The gateway polls devices on a foreign (non-BACnet) bus and presents
+//     their data as BACnet objects - reads follow the foreign values, writes
+//     are carried through to the foreign devices, and a foreign device that
+//     stops answering is reported, not hidden.
 //
-//     DS-RP-B    - respond to ReadProperty requests (on itself AND on the
-//                  virtual device it represents),
-//     DS-WP-B    - allow other devices to WriteProperty its objects,
-//     DM-DDB-B   - answer Who-Is with I-Am (both the gateway's own I-Am and
-//                  the virtual device's),
-//     DM-DOB-B   - answer Who-Has,
-//     DM-DCC-B   - respond to DeviceCommunicationControl,
-//     GW-VN-B    - represent a device it is gatewaying for as a virtual
-//                  BACnet device on a virtual network.
+// The foreign bus here is SIMULATION (simulation/SimulatedForeignBus.cpp):
+// three pretend field devices ("slaves") with a Modbus-style register map,
+// each with its own poll cycle, response latency and a drifting sensor. The
+// gateway only ever talks to it through ForeignBus.h - THE SEAM. A real
+// product replaces the simulation with its own driver behind the same seam:
+// Modbus TCP or RTU, a PLC's native protocol, a vendor serial protocol...
 //
-// plus discovery, and NM-RC-B: Annex K.7.1 requires a GW-VN-B device to
-// "support NM-RC-B and DS-RP-B", because it appears to the network as a router
-// (Annex H). The stack's virtual router provides it - it answers
-// Who-Is-Router-To-Network for the virtual network - but that is read from the
-// stack source, not yet verified on the wire for this example. This example
-// does NOT implement DM-LM-B or physical inter-datalink routing (B-RTR's job).
+// The register map (every slave has the same one; see SimulatedForeignBus.h):
 //
-// NOT SIMULATED YET: no foreign protocol sits behind the gateway, and the
-// virtual device's Analog Input 1 is a constant (g_virtualAnalogInput1Value).
+//     unit  slave          input register 0      holding register 0     coil 0
+//     1     Boiler         supply temperature    supply setpoint        burner enable
+//     2     Air Handler    discharge temperature discharge setpoint     fan enable
+//     3     Chiller        chilled-water temp.   chilled-water setpoint compressor enable
+//     (temperatures are degrees Celsius x 10 - 652 = 65.2 C)
 //
-// The GATEWAY device keeps the same base objects as B-ASC - three read-only
-// sensor inputs and three commandable outputs a client drives with
-// WriteProperty:
+// Annex L.7.2: "There are two types of B-GW devices, those that represent
+// non-BACnet devices as a network of virtual BACnet devices, and those that
+// represent non-BACnet devices as BACnet objects." This one example is
+// either, picked at start-up with --mode:
 //
-//     Device 389019            "Chipkin Example B-GW"           (instance configurable with --deviceID)
-//     Analog Input  1          "Bronze"            (REAL, degrees Celsius; read-only)
-//     Binary Input  1          "Emerald"           (active / inactive; read-only)
-//     Multi-State Input 1      "Hot Pink"          (state 1..3; read-only)
-//     Analog Output 1          "Chartreuse"        (REAL setpoint; WRITABLE, commandable)
-//     Binary Output 1          "Fuchsia"           (active / inactive; WRITABLE, commandable)
-//     Multi-State Output 1     "Indigo"            (state 1..3; WRITABLE, commandable)
-//     Network Port 1           "Vermilion"         (the BACnet/IP port - required)
+//   --mode eo  (the default) - GW-EO-B, Annex K.7.2 / H.1.1.3. Every slave's
+//              data becomes objects INSIDE the gateway device:
+//                  Analog Input  n  "Bronze n"      <- slave n input register 0
+//                  Analog Output n  "Chartreuse n"  -> slave n holding register 0
+//                  Binary Output n  "Fuchsia n"     -> slave n coil 0
+//              (instance 1 is plain "Bronze" etc., per docs/colour-table.md).
+//              A slave that stops answering: the three objects keep answering
+//              reads from the cache, with Reliability = COMMUNICATION_FAILURE
+//              and the FAULT flag set in Status_Flags (Annex H.2.3.2).
 //
-// Behind it, on virtual network VIRTUAL_NETWORK_NUMBER, sits ONE VIRTUAL
-// DEVICE - the thing this gateway is actually gatewaying:
+//   --mode vn  - GW-VN-B, Annex K.7.1 / H.1.1.1. Every slave becomes its own
+//              VIRTUAL BACnet device on virtual network 100 behind the
+//              gateway, which appears to the network as a router (NM-RC-B):
+//                  Device 389119 + n - 1  "Chipkin Example B-GW (Boiler)" ...
+//                      Analog Input 1 "Bronze", Analog Output 1 "Chartreuse",
+//                      Binary Output 1 "Fuchsia" - mapped as above.
+//              A slave that stops answering: its virtual device stops
+//              answering Who-Is (no I-Am on its behalf - H.2.2.1). H.2.2.1
+//              also requires the virtual device to stay SILENT to requests
+//              directed to it; the stack has no customer export for that yet,
+//              so reads are still answered (cached value, Reliability =
+//              COMMUNICATION_FAILURE + FAULT flag). That gap is documented in
+//              the README and TODO.md.
 //
-//     Device 389119            "Chipkin Example B-GW (virtual)" (docs/colour-table.md: gateway
-//                                                    instance + 100)
-//     Analog Input  1          "Bronze"            (REAL, degrees Celsius; read-only;
-//                                                    its OWN value, independent of the
-//                                                    gateway's Analog Input 1 above)
+// BIBBs (Annex L.7.2): DS-RP-B, DS-WP-B, DM-DDB-B, DM-DOB-B, DM-DCC-B, plus
+// GW-EO-B (--mode eo) or GW-VN-B and the NM-RC-B it requires (--mode vn).
 //
-// F-GATEWAY: BACnetStack_AddVirtualNetwork(gatewayInstance, network,
-// virtualNetworkPortInstance) turns the gateway device into a virtual router
-// and creates the Network Port object for that virtual network;
-// BACnetStack_AddDeviceToVirtualNetwork(virtualDeviceInstance, network) then
-// adds the virtual device itself. From that point on the virtual device is a
-// full BACnet device as far as the rest of the API is concerned - it gets its
-// own BACnetStack_AddDevice-shaped identity and BACnetStack_AddObject calls
-// name it directly as the deviceInstance parameter, exactly like the real
-// gateway device. The Get/SetProperty callbacks below dispatch on
-// deviceInstance for this reason - the virtual device answers indistinguishably
-// from a second, separate example process, except that it shares the
-// gateway's one UDP socket and Network Port.
+// Outputs are COMMANDABLE with a full 16-slot Priority_Array (Annex H.2.1.3).
+// The winning value is written through to the slave asynchronously: the
+// WriteProperty gets its Result(+) at once, before the slave has the value
+// (write caching, Annex H.2.1.1), and the gateway retries until it lands -
+// including when an offline slave comes back.
 //
-// Output objects are COMMANDABLE: their Present_Value is driven by a 16-slot
-// BACnet Priority_Array, exactly as in B-SA/B-ASC/B-RTR. See GetCommandable()
-// etc. below - unchanged from those examples.
-//
-// To be a conformant BACnet device (Protocol_Revision 30) each object must
-// expose its full set of REQUIRED properties. Most are generated by the stack
-// (Object_Identifier, Object_Type, Status_Flags, Object_List, Protocol_*).
-//
-// Interactive keys (handled by the shared helper): h = help, q = quit,
-// up/down = nudge the GATEWAY's Analog Input 1 by +/-1.1, r = re-send I-Am for
-// BOTH devices (gateway + virtual) now, instead of waiting for the one sent at
-// start-up (common/ 2.4.0+ - the same key B-RTR claimed for "routing/gateway
-// examples" in docs/menu-keys.md; this example repurposes its ACTION to a
-// plain I-Am re-announce rather than I-Am-Router-To-Network, since a gateway
-// is not a router and does not send network-layer router messages).
-// Command line: --port <n>, --deviceID <n> (the GATEWAY's instance only - the
-// virtual device's instance is fixed at gatewayInstance + 100, per
-// docs/colour-table.md, and moves with it only if you also change the
-// VIRTUAL_DEVICE_INSTANCE constant below).
-//
-// All the UDP/stack plumbing lives in common/CASExampleHelper so this file can
-// stay focused on the BACnet logic.
+// Interactive keys: h help, q quit, up/down nudge the SIMULATED Boiler's
+// sensor by 1.1 C (Analog Input 1 follows on the next poll), k kill / revive
+// the simulated Boiler (the Failure Mode), r re-send I-Am-Router-To-Network
+// (--mode vn) or the gateway's I-Am (--mode eo).
+// Command line: --mode eo|vn, --port <n>, --deviceID <n> (the gateway's
+// instance; in --mode vn the virtual devices are fixed at 389119..389121).
 // =============================================================================
 
 #include "CASExampleHelper.h"
@@ -97,7 +78,11 @@
 #include "CASBACnetStackAdapter.h" // the CAS BACnet Stack C API (BACnetStack_*); call
                                     // LoadBACnetFunctions() before any BACnetStack_* call -
                                     // see the top of main() below.
+#include "ForeignBus.h"                      // THE SEAM to the non-BACnet network
+#include "simulation/SimulatedForeignBus.h"  // SIMULATION only: the 'k' and up/down keys
+#include "simulation/SimulationControl.h"    // SIMULATION only: the Wire Tests' back door
 
+#include <chrono>
 #include <stdio.h>
 #include <string.h>
 #include <string>
@@ -114,7 +99,14 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-GW (Gateway) Example - C++";
-static const char* APP_VERSION = "1.0.2";
+static const char* APP_VERSION = "2.0.0";
+
+// Which kind of gateway this run is (Annex L.7.2 allows either).
+enum class GatewayMode {
+    EmbeddedObjects, // --mode eo: GW-EO-B, the slaves' data are objects in the gateway
+    VirtualNetwork   // --mode vn: GW-VN-B, each slave is a virtual device on a virtual network
+};
+static GatewayMode g_mode = GatewayMode::EmbeddedObjects;
 
 // The GATEWAY device instance. BACnet requires this to be configurable, so it
 // defaults to 389019 (docs/colour-table.md) and can be overridden on the
@@ -122,27 +114,15 @@ static const char* APP_VERSION = "1.0.2";
 // must be unique across the internetwork.
 static uint32_t g_deviceInstance = 389019;
 
-// The VIRTUAL device instance - the gateway's number + 100, per
-// docs/colour-table.md ("A virtual device behind a gateway (B-GW) uses the
-// gateway's number + 100"). NOT overridden by --deviceID: --deviceID only
-// renumbers the gateway itself, matching every other example's --deviceID
-// contract (it configures THIS device, not something behind it).
-// CHANGE BEFORE YOU SHIP: must also be unique across the whole BACnet
-// internetwork, exactly like the gateway's own instance - two devices with
-// colliding instances is a spec violation regardless of which one they are.
-static const uint32_t VIRTUAL_DEVICE_INSTANCE = 389119;
-// The virtual device's Object_Name. CHANGE BEFORE YOU SHIP, and see the
-// warning on DEVICE_NAME below - it applies here too.
-static const char* VIRTUAL_DEVICE_NAME = "Chipkin Example B-GW (virtual)";
+// --mode vn: the virtual devices are 389119, 389120, 389121 - the gateway's
+// number + 100 and up (docs/colour-table.md). NOT moved by --deviceID.
+// CHANGE BEFORE YOU SHIP: each must be unique across the whole internetwork.
+static const uint32_t FIRST_VIRTUAL_DEVICE_INSTANCE = 389119;
 
-// The virtual network the virtual device lives on, and the Network Port
-// object instance created for it by BACnetStack_AddVirtualNetwork. Neither is
-// a real, wire-configured BACnet/IP network - see BACnetStack_AddVirtualNetwork's
-// doc comment. 100 avoids the physical Network Port's own (unconfigured,
-// quality UNKNOWN, effectively 0) network number.
-// CHANGE BEFORE YOU SHIP: must be unique among every network number (real or
-// virtual) on the internetwork, same as a device instance must be unique
-// among device instances.
+// --mode vn: the virtual network the virtual devices live on, and the Network
+// Port object instance the stack creates for it. Not a real, wire-configured
+// network - see BACnetStack_AddVirtualNetwork's doc comment.
+// CHANGE BEFORE YOU SHIP: unique among every network number on the internetwork.
 static const uint16_t VIRTUAL_NETWORK_NUMBER = 100;
 static const uint32_t VIRTUAL_NETWORK_PORT_INSTANCE = 2; // "Network Port 1" (Vermilion) is 1
 
@@ -157,179 +137,348 @@ static const uint32_t VIRTUAL_NETWORK_PORT_INSTANCE = 2; // "Network Port 1" (Ve
 // Your BACnet Vendor Identifier. 389 = Chipkin Automation Systems; change this
 // to YOUR company's vendor ID before shipping a product. Vendor IDs are assigned
 // by ASHRAE - request one (free) at https://bacnet.org/assigned-vendor-ids/.
-// Update VENDOR_NAME below to match. The virtual device shares the same vendor.
+// The virtual devices share the gateway's vendor.
 static const uint32_t VENDOR_IDENTIFIER = 389;
 
-// The GATEWAY's Object_Name.
-//
-// THIS IS THE ONE THAT WILL BITE YOU. Object_Name must be unique across the
-// whole BACnet internetwork, and here it is a COMPILE-TIME constant. The
-// device instance is runtime-configurable via --deviceID, so it is easy to
-// ship two units, configure their instances correctly, and still have BOTH
-// announce Object_Name "Chipkin Example B-GW" - a spec violation, and a hard BTL failure.
-// The SAME is true of VIRTUAL_DEVICE_NAME below: it is fixed at compile time
-// too, and every unit's virtual device would collide right along with the
-// gateway's. In a real product BOTH names must be per-unit configurable:
-// derive them from a serial number, DIP switches, a config file, or add a
-// --deviceName argument.
+// The GATEWAY's Object_Name. Object_Name must be unique across the whole
+// BACnet internetwork, and here it is a COMPILE-TIME constant while the
+// instance is configurable - ship two units and both announce the same name,
+// a spec violation. In a real product make it (and the virtual devices'
+// names, built from it below) per-unit configurable.
 static const char* DEVICE_NAME = "Chipkin Example B-GW";
 
-// The GATEWAY's Description. Change it to what YOUR device actually is; this
-// string describes this tutorial.
-static const char* DEVICE_DESCRIPTION =
-    "Chipkin CAS BACnet Stack example - B-GW (Gateway) profile. Demonstrates "
-    "DS-RP-B + DS-WP-B + DM-DDB-B + DM-DOB-B + DM-DCC-B + GW-VN-B: a gateway "
-    "device that represents one virtual BACnet device on a virtual network "
-    "behind it.";
-// The VIRTUAL device's Description. Change it to what your gatewayed device
-// actually is.
-static const char* VIRTUAL_DEVICE_DESCRIPTION =
-    "Chipkin CAS BACnet Stack example - B-GW (Gateway) profile. A VIRTUAL "
-    "BACnet device (GW-VN-B), modelled behind Device 389019 on virtual "
-    "network 100, with its own Analog Input.";
+static const char* DEVICE_DESCRIPTION_EO =
+    "Chipkin CAS BACnet Stack example - B-GW (Gateway), GW-EO-B: the data of three devices "
+    "on a SIMULATED foreign bus, as objects in this device.";
+static const char* DEVICE_DESCRIPTION_VN =
+    "Chipkin CAS BACnet Stack example - B-GW (Gateway), GW-VN-B: three devices on a "
+    "SIMULATED foreign bus, as virtual BACnet devices on virtual network 100.";
 
-// Device identity strings (read by clients, and used to populate I-Am). The
-// virtual device answers with its own Model_Name so a client can tell the two
-// devices apart in a discovery tool even though they share one IP/UDP port.
-//   VENDOR_NAME        - your company name; must match VENDOR_IDENTIFIER above.
-//   MODEL_NAME          - your GATEWAY's model designation, read by a building
-//                          operator to identify it in a discovery tool.
-//   VIRTUAL_MODEL_NAME  - the model designation for the device you gateway.
 static const char* VENDOR_NAME = "Chipkin Automation Systems";
 static const char* MODEL_NAME = "CAS BACnet Stack Example - B-GW";
 static const char* VIRTUAL_MODEL_NAME = "CAS BACnet Stack Example - B-GW (virtual device)";
 
-// DeviceCommunicationControl password. A management station may include a password
-// with a DeviceCommunicationControl (or ReinitializeDevice) request; the device
-// accepts the command only if it matches. Set to NULL/empty to accept any request
-// (no password required). Change this to your device's secret before shipping.
-static const char* DCC_PASSWORD = "";  // "" = no password required
+// DeviceCommunicationControl password ("" = accept any request). Change this
+// to your device's secret before shipping.
+static const char* DCC_PASSWORD = "";
 
-// Application_Software_Version (12) is just APP_VERSION - one source of
-// truth, shared by both devices, so it can never drift from what
-// --version/the startup banner prints.
-//
-// Firmware_Revision (44) is meant to name the underlying platform/stack,
-// not this example's own version - built at runtime from the CAS BACnet
-// Stack's own BACnetStack_GetAPIMajorVersion()/etc. (the same 4 calls
-// common/CASExampleHelper.cpp's PrintVersion() already uses for the
-// startup banner's "CAS BACnet Stack version: X.Y.Z.W" line), so it can
-// never go stale either - see g_firmwareRevision below, populated once
-// right after LoadBACnetFunctions() succeeds (those functions are what
-// the version getters themselves are, so they must be loaded first).
+// Firmware_Revision names the stack's version (filled in main()); the
+// Application_Software_Version is APP_VERSION.
 static std::string g_firmwareRevision;
 
-// The GATEWAY's sensor objects (all instance 1) and their colour names.
-static const uint32_t ANALOG_INPUT_INSTANCE = 1;       // "Bronze"
-static const uint32_t BINARY_INPUT_INSTANCE = 1;       // "Emerald"
-static const uint32_t MULTI_STATE_INPUT_INSTANCE = 1;  // "Hot Pink"
-static const uint32_t MULTI_STATE_INPUT_NUMBER_OF_STATES = 3;
-
-// The VIRTUAL device's own Analog Input 1 ("Bronze") - a SEPARATE object,
-// SEPARATE value, living under VIRTUAL_DEVICE_INSTANCE rather than
-// g_deviceInstance. Every Get/SetProperty callback below dispatches on
-// deviceInstance first for exactly this reason - object type + instance alone
-// is not enough to tell the two devices' identically-numbered objects apart.
-static const uint32_t VIRTUAL_ANALOG_INPUT_INSTANCE = 1; // "Bronze"
-static float g_virtualAnalogInput1Value = 19.0f;
-
-// The Network Port object - every BACnet device must have one. It represents
-// the BACnet/IP port the GATEWAY communicates on; the virtual device is
-// reached through this SAME port (it has no socket of its own - see
-// BACnetStack_AddVirtualNetwork's doc comment).
+// The Network Port object for the gateway's BACnet/IP port.
 static const uint32_t NETWORK_PORT_INSTANCE = 1;       // "Vermilion"
 static const uint32_t MAX_APDU_LENGTH = 1476;          // BACnet/IP APDU length
-
-// BACnet/IP addressing the Network Port reports. The IP address and subnet mask
-// are filled in at start-up from the host's primary interface; the gateway is
-// left unset (0.0.0.0) for this example. The stack also uses IP_Address +
-// BACnet_IP_UDP_Port to build the port's MAC_Address automatically.
 static uint8_t g_ipAddress[4] = { 0, 0, 0, 0 };
 static uint8_t g_ipSubnetMask[4] = { 0, 0, 0, 0 };
 static uint8_t g_ipDefaultGateway[4] = { 0, 0, 0, 0 };
 static uint16_t g_bacnetIpUdpPort = 47808;
 
-// Analog Input 1's live present value (degrees Celsius). Starts at 21.5 and is
-// nudged by the up/down arrow keys. A real sensor would update this from
-// hardware instead. This is the GATEWAY's own value; the virtual device's
-// Analog Input 1 (g_virtualAnalogInput1Value above) is independent.
-static float g_analogInput1Value = 21.5f;
+// Reliability (property 103) and the two values this gateway reports
+// (BACnetReliability, cl. 21). The stack builds Status_Flags from it: any
+// value other than NO_FAULT_DETECTED sets the FAULT flag.
+static const uint32_t PROPERTY_IDENTIFIER_RELIABILITY = 103;
+static const uint32_t RELIABILITY_NO_FAULT_DETECTED = 0;
+static const uint32_t RELIABILITY_COMMUNICATION_FAILURE = 12;
 
-// The GATEWAY's commandable OUTPUT objects (all instance 1) and their colour
-// names. Inherited verbatim from B-SA/B-ASC/B-RTR: clients drive them with
-// WriteProperty (DS-WP-B). The virtual device has none - it exists to
-// demonstrate GW-VN-B (a represented device), not F-OUTPUTS a second time.
-static const uint32_t ANALOG_OUTPUT_INSTANCE = 1;        // "Chartreuse"
-static const uint32_t BINARY_OUTPUT_INSTANCE = 1;        // "Fuchsia"
-static const uint32_t MULTI_STATE_OUTPUT_INSTANCE = 1;   // "Indigo"
-static const uint32_t MULTI_STATE_OUTPUT_NUMBER_OF_STATES = 3;
 static const uint32_t BACNET_PRIORITY_ARRAY_SIZE = 16;
 
+// -----------------------------------------------------------------------------
+// 2. The gateway's picture of the foreign bus
+//
+// For every slave the gateway keeps a CACHE - the last value it read, the
+// values BACnet clients have commanded - and the state of its conversation
+// with that slave. BACnet requests are answered from the cache, never by
+// waiting on the foreign bus (Annex H.2.1.4, H.2.3.2).
+// -----------------------------------------------------------------------------
+
 // A BACnet commandable value: a 16-slot Priority_Array plus a Relinquish_Default.
-// Each slot is either null (relinquished) or holds a commanded value. A real
-// device would map the resolved Present_Value onto its physical output; here we
-// just store the commands. The values are kept as double and cast per object
-// type (REAL for AO, 0/1 for BO, state number for MSO).
+// Each slot is either null (relinquished) or holds a commanded value. The
+// stack builds Priority_Array, Present_Value and Current_Command_Priority
+// from what the callbacks below serve; the gateway resolves the same winner
+// itself (WinningValue) to know what to write to the slave.
 struct Commandable {
-    bool isSet[16];          // is slot i (1..16) commanded?
-    double value[16];        // the commanded value at slot i
+    bool isSet[BACNET_PRIORITY_ARRAY_SIZE];
+    double value[BACNET_PRIORITY_ARRAY_SIZE];
     double relinquishDefault;
 };
 
-static Commandable g_analogOutput = { { false }, { 0 }, 20.0 }; // setpoint, default 20.0 C
-static Commandable g_binaryOutput = { { false }, { 0 }, 0.0 };  // default inactive (0)
-static Commandable g_multiStateOutput = { { false }, { 0 }, 1.0 }; // default state 1
+// One output's link to its foreign data point: what was last written there,
+// and the write on the wire right now (if any).
+struct WriteThrough {
+    bool written;              // false = the slave may not hold the winning value yet
+    double lastWrittenValue;
+    uint32_t transactionId;    // 0 = no write in flight
+    double inFlightValue;
+    uint64_t retryAt;          // after a failed write, not before this time
+};
+
+struct GatewayedSlave {
+    uint8_t unitId;                     // the slave's address on the foreign bus
+    uint64_t pollPeriodMilliseconds;    // how often the gateway reads its sensor
+    uint32_t virtualDeviceInstance;     // --mode vn only
+
+    // The cache.
+    double measuredTemperature;         // input register 0, in degrees C
+    Commandable setpoint;               // Analog Output -> holding register 0 (degrees C)
+    Commandable enable;                 // Binary Output -> coil 0 (0 inactive, 1 active)
+    WriteThrough setpointLink;
+    WriteThrough enableLink;
+
+    // The conversation.
+    bool online;                        // what the gateway BELIEVES (not what is true)
+    uint32_t consecutiveFailedPolls;
+    uint64_t nextPollAt;
+    uint32_t pollTransactionId;         // 0 = no poll in flight
+};
+
+// The relinquish defaults match the slaves' starting setpoints and enables,
+// so start-up writes leave each slave as it was.
+static GatewayedSlave g_slaves[SimulatedForeignBus::SLAVE_COUNT] = {
+    // unit, poll ms, virtual device,                     cache: temperature, setpoint, enable
+    { 1, 500, FIRST_VIRTUAL_DEVICE_INSTANCE,     0.0, { { false }, { 0 }, 65.0 }, { { false }, { 0 }, 1.0 },
+      { false, 0, 0, 0, 0 }, { false, 0, 0, 0, 0 }, true, 0, 0, 0 },
+    { 2, 700, FIRST_VIRTUAL_DEVICE_INSTANCE + 1, 0.0, { { false }, { 0 }, 13.0 }, { { false }, { 0 }, 1.0 },
+      { false, 0, 0, 0, 0 }, { false, 0, 0, 0, 0 }, true, 0, 0, 0 },
+    { 3, 900, FIRST_VIRTUAL_DEVICE_INSTANCE + 2, 0.0, { { false }, { 0 }, 7.0 },  { { false }, { 0 }, 0.0 },
+      { false, 0, 0, 0, 0 }, { false, 0, 0, 0, 0 }, true, 0, 0, 0 },
+};
+
+// A slave is declared offline after this many polls in a row go unanswered,
+// so one lost frame on a noisy bus does not flap the BACnet objects into fault.
+static const uint32_t OFFLINE_AFTER_FAILED_POLLS = 2;
+
+// Each mapped point is one of three kinds - one per register-map column.
+enum class PointKind { MeasuredTemperature, Setpoint, Enable };
+
+static uint64_t NowMilliseconds() {
+    return (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 static uint8_t EffectivePriority(uint8_t priority) {
     return (priority >= 1 && priority <= BACNET_PRIORITY_ARRAY_SIZE) ? priority : 16;
 }
 
-static void CommandWrite(Commandable* c, uint8_t priority, double value) {
-    const uint8_t p = EffectivePriority(priority);
-    c->isSet[p - 1] = true;
-    c->value[p - 1] = value;
+static double WinningValue(const Commandable& command) {
+    for (uint32_t slotIndex = 0; slotIndex < BACNET_PRIORITY_ARRAY_SIZE; ++slotIndex) {
+        if (command.isSet[slotIndex]) {
+            return command.value[slotIndex];
+        }
+    }
+    return command.relinquishDefault;
 }
 
-static void CommandRelinquish(Commandable* c, uint8_t priority) {
-    const uint8_t p = EffectivePriority(priority);
-    c->isSet[p - 1] = false;
-}
-
-// Resolve which Commandable an (deviceInstance, objectType, objectInstance) maps
-// to, or NULL. Only the GATEWAY has commandable outputs.
-static Commandable* GetCommandable(uint32_t deviceInstance, uint16_t objectType, uint32_t objectInstance) {
-    if (deviceInstance != g_deviceInstance) {
+// Which mapped point does a BACnet (device, object type, object instance) name?
+// --mode eo: the gateway device's object instance n is slave n.
+// --mode vn: the virtual device names the slave; every object is instance 1.
+static GatewayedSlave* FindMappedPoint(uint32_t deviceInstance, uint16_t objectType,
+                                       uint32_t objectInstance, PointKind* kind) {
+    PointKind pointKind;
+    if (objectType == OBJECT_TYPE_ANALOG_INPUT) {
+        pointKind = PointKind::MeasuredTemperature;
+    } else if (objectType == OBJECT_TYPE_ANALOG_OUTPUT) {
+        pointKind = PointKind::Setpoint;
+    } else if (objectType == OBJECT_TYPE_BINARY_OUTPUT) {
+        pointKind = PointKind::Enable;
+    } else {
         return NULL;
     }
-    if (objectType == OBJECT_TYPE_ANALOG_OUTPUT && objectInstance == ANALOG_OUTPUT_INSTANCE) {
-        return &g_analogOutput;
-    }
-    if (objectType == OBJECT_TYPE_BINARY_OUTPUT && objectInstance == BINARY_OUTPUT_INSTANCE) {
-        return &g_binaryOutput;
-    }
-    if (objectType == OBJECT_TYPE_MULTI_STATE_OUTPUT && objectInstance == MULTI_STATE_OUTPUT_INSTANCE) {
-        return &g_multiStateOutput;
+    for (GatewayedSlave& slave : g_slaves) {
+        const bool matches = (g_mode == GatewayMode::EmbeddedObjects)
+            ? (deviceInstance == g_deviceInstance && objectInstance == slave.unitId)
+            : (deviceInstance == slave.virtualDeviceInstance && objectInstance == 1);
+        if (matches) {
+            if (kind != NULL) {
+                *kind = pointKind;
+            }
+            return &slave;
+        }
     }
     return NULL;
 }
 
-static bool ReadPrioritySlot(const Commandable* c, uint32_t propertyIdentifier,
+static GatewayedSlave* FindVirtualDevice(uint32_t deviceInstance) {
+    if (g_mode != GatewayMode::VirtualNetwork) {
+        return NULL;
+    }
+    for (GatewayedSlave& slave : g_slaves) {
+        if (slave.virtualDeviceInstance == deviceInstance) {
+            return &slave;
+        }
+    }
+    return NULL;
+}
+
+static Commandable* FindCommandable(uint32_t deviceInstance, uint16_t objectType, uint32_t objectInstance) {
+    PointKind kind;
+    GatewayedSlave* slave = FindMappedPoint(deviceInstance, objectType, objectInstance, &kind);
+    if (slave == NULL) {
+        return NULL;
+    }
+    if (kind == PointKind::Setpoint) {
+        return &slave->setpoint;
+    }
+    if (kind == PointKind::Enable) {
+        return &slave->enable;
+    }
+    return NULL;
+}
+
+static bool ReadPrioritySlot(const Commandable* command, uint32_t propertyIdentifier,
                              bool useArrayIndex, uint32_t propertyArrayIndex,
                              bool* slotIsSet, double* slotValue) {
     if (propertyIdentifier != PROPERTY_IDENTIFIER_PRIORITY_ARRAY || !useArrayIndex ||
         propertyArrayIndex < 1 || propertyArrayIndex > BACNET_PRIORITY_ARRAY_SIZE) {
         return false;
     }
-    *slotIsSet = c->isSet[propertyArrayIndex - 1];
-    *slotValue = c->value[propertyArrayIndex - 1];
+    *slotIsSet = command->isSet[propertyArrayIndex - 1];
+    *slotValue = command->value[propertyArrayIndex - 1];
     return true;
 }
 
+// The objects' names follow docs/colour-table.md: instance 1 is "Bronze",
+// instance n is "Bronze n". In --mode vn every object is instance 1.
+static std::string MappedObjectName(PointKind kind, uint32_t objectInstance) {
+    const char* colour = (kind == PointKind::MeasuredTemperature) ? "Bronze" :
+                         (kind == PointKind::Setpoint) ? "Chartreuse" : "Fuchsia";
+    if (objectInstance == 1) {
+        return colour;
+    }
+    return std::string(colour) + " " + std::to_string(objectInstance);
+}
+
+// Description says where on the foreign bus the object's value lives.
+static std::string MappedObjectDescription(const GatewayedSlave& slave, PointKind kind) {
+    const char* what = (kind == PointKind::MeasuredTemperature) ? "input register 0 (measured temperature, C x 10)" :
+                       (kind == PointKind::Setpoint) ? "holding register 0 (setpoint, C x 10)" :
+                       "coil 0 (enable)";
+    return std::string("SIMULATED foreign bus: ") + SimulatedForeignBus::SlaveName(slave.unitId) +
+           " (unit " + std::to_string(slave.unitId) + ") " + what;
+}
+
+static std::string VirtualDeviceName(const GatewayedSlave& slave) {
+    return std::string(DEVICE_NAME) + " (" + SimulatedForeignBus::SlaveName(slave.unitId) + ")";
+}
+
+static std::string VirtualDeviceDescription(const GatewayedSlave& slave) {
+    return std::string("Virtual BACnet device (GW-VN-B) for the ") + SimulatedForeignBus::SlaveName(slave.unitId) +
+           " - unit " + std::to_string(slave.unitId) + " on a SIMULATED foreign bus behind Device " +
+           std::to_string(g_deviceInstance) + ".";
+}
+
 // -----------------------------------------------------------------------------
-// 2. Property "get" callbacks. See B-ASC's main.cpp for the full essay on the
-// errorCode out-parameter and the decline-and-fabricate fallback; the same
-// rules apply here unchanged. The only NEW material below is dispatching on
-// deviceInstance to serve TWO devices (gateway + virtual) from one process.
+// 3. Talking to the foreign bus - polling, write-through, offline detection.
+// Everything here goes through ForeignBus.h, the seam.
+// -----------------------------------------------------------------------------
+
+static void SetVirtualDeviceDiscoverable(const GatewayedSlave& slave, bool discoverable);
+static void SendIAmForVirtualDevice(const GatewayedSlave& slave);
+
+static void SlaveWentOffline(GatewayedSlave& slave) {
+    slave.online = false;
+    // Whatever was written may not have landed; write it again once the slave is back.
+    slave.setpointLink.written = false;
+    slave.enableLink.written = false;
+    printf("GATEWAY: slave %u (%s) stopped answering - its objects now report Reliability "
+           "COMMUNICATION_FAILURE + FAULT.\n", slave.unitId, SimulatedForeignBus::SlaveName(slave.unitId));
+    if (g_mode == GatewayMode::VirtualNetwork) {
+        SetVirtualDeviceDiscoverable(slave, false);
+    }
+}
+
+static void SlaveCameBack(GatewayedSlave& slave) {
+    slave.online = true;
+    printf("GATEWAY: slave %u (%s) answers again - fault cleared.\n", slave.unitId,
+           SimulatedForeignBus::SlaveName(slave.unitId));
+    if (g_mode == GatewayMode::VirtualNetwork) {
+        SetVirtualDeviceDiscoverable(slave, true);
+        SendIAmForVirtualDevice(slave);
+    }
+}
+
+static void ServicePoll(GatewayedSlave& slave, uint64_t now) {
+    if (slave.pollTransactionId == 0) {
+        if (now < slave.nextPollAt) {
+            return;
+        }
+        slave.nextPollAt = now + slave.pollPeriodMilliseconds;
+        slave.pollTransactionId = ForeignBus::StartRead(slave.unitId, ForeignBus::Table::InputRegister,
+                                                        SimulatedForeignBus::INPUT_REGISTER_MEASURED_TEMPERATURE);
+        return;
+    }
+    uint16_t registerValue = 0;
+    const ForeignBus::Outcome outcome = ForeignBus::CheckTransaction(slave.pollTransactionId, &registerValue);
+    if (outcome == ForeignBus::Outcome::Pending) {
+        return;
+    }
+    slave.pollTransactionId = 0;
+    if (outcome == ForeignBus::Outcome::Done) {
+        slave.measuredTemperature = (int16_t)registerValue / 10.0; // C x 10, signed
+        slave.consecutiveFailedPolls = 0;
+        if (!slave.online) {
+            SlaveCameBack(slave);
+        }
+        return;
+    }
+    ++slave.consecutiveFailedPolls;
+    if (slave.online && slave.consecutiveFailedPolls >= OFFLINE_AFTER_FAILED_POLLS) {
+        SlaveWentOffline(slave);
+    }
+}
+
+// Keep one output's foreign data point equal to the BACnet winning value.
+static void ServiceWriteThrough(GatewayedSlave& slave, const Commandable& command, WriteThrough& link,
+                                ForeignBus::Table table, uint16_t address, double registerScale, uint64_t now) {
+    if (link.transactionId != 0) {
+        const ForeignBus::Outcome outcome = ForeignBus::CheckTransaction(link.transactionId, NULL);
+        if (outcome == ForeignBus::Outcome::Pending) {
+            return;
+        }
+        link.transactionId = 0;
+        if (outcome == ForeignBus::Outcome::Done) {
+            link.written = true;
+            link.lastWrittenValue = link.inFlightValue;
+            printf("GATEWAY: wrote %.1f to slave %u %s %u.\n", link.inFlightValue, slave.unitId,
+                   ForeignBus::TableName(table), address);
+        }
+        if (outcome == ForeignBus::Outcome::Timeout) {
+            // written stays false: try again, but not on every pass - a device that keeps
+            // refusing a write (a real driver reports a Modbus exception the same way) would
+            // otherwise be hammered. One poll cycle apart, and say so on the console.
+            link.retryAt = now + slave.pollPeriodMilliseconds;
+            printf("GATEWAY: write of %.1f to slave %u %s %u failed - retrying.\n", link.inFlightValue,
+                   slave.unitId, ForeignBus::TableName(table), address);
+        }
+    }
+    const double winningValue = WinningValue(command);
+    if (!slave.online || now < link.retryAt || (link.written && link.lastWrittenValue == winningValue)) {
+        return; // nothing to do - or nobody to tell until the slave is back
+    }
+    const long scaled = (long)(winningValue * registerScale + (winningValue < 0 ? -0.5 : 0.5));
+    link.transactionId = ForeignBus::StartWrite(slave.unitId, table, address, (uint16_t)scaled);
+    link.inFlightValue = winningValue;
+}
+
+static void ServiceForeignBus() {
+    const uint64_t now = NowMilliseconds();
+    ForeignBus::Service(now);
+    for (GatewayedSlave& slave : g_slaves) {
+        ServicePoll(slave, now);
+        ServiceWriteThrough(slave, slave.setpoint, slave.setpointLink, ForeignBus::Table::HoldingRegister,
+                            SimulatedForeignBus::HOLDING_REGISTER_SETPOINT, 10.0, now);
+        ServiceWriteThrough(slave, slave.enable, slave.enableLink, ForeignBus::Table::Coil,
+                            SimulatedForeignBus::COIL_ENABLE, 1.0, now);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 4. Property "get" callbacks. The stack asks; the gateway answers from its
+// cache. Every callback dispatches on deviceInstance first: in --mode vn the
+// three virtual devices all have an Analog Input 1, and only deviceInstance
+// tells them apart. Returning false declines - the stack then answers the
+// property itself if it can (see B-ASC's main.cpp for the full essay on the
+// errorCode out-parameter and that fallback).
 // -----------------------------------------------------------------------------
 
 bool GetPropertyReal(const uint32_t deviceInstance, const uint16_t objectType,
@@ -337,38 +486,30 @@ bool GetPropertyReal(const uint32_t deviceInstance, const uint16_t objectType,
                      float* value, const bool useArrayIndex,
                      const uint32_t propertyArrayIndex, uint32_t* errorCode) {
     (void)errorCode;
-    if (deviceInstance == VIRTUAL_DEVICE_INSTANCE) {
-        if (objectType == OBJECT_TYPE_ANALOG_INPUT &&
-            objectInstance == VIRTUAL_ANALOG_INPUT_INSTANCE &&
-            propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-            *value = g_virtualAnalogInput1Value;
-            return true;
-        }
+    PointKind kind;
+    const GatewayedSlave* slave = FindMappedPoint(deviceInstance, objectType, objectInstance, &kind);
+    if (slave == NULL) {
         return false;
     }
-    if (deviceInstance != g_deviceInstance) {
-        return false;
-    }
-    if (objectType == OBJECT_TYPE_ANALOG_INPUT &&
-        objectInstance == ANALOG_INPUT_INSTANCE &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-        *value = g_analogInput1Value;
+    if (kind == PointKind::MeasuredTemperature && propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
+        // The last value read - still served while the slave is offline (H.2.3.2:
+        // "shall return values when read and not errors").
+        *value = (float)slave->measuredTemperature;
         return true;
     }
-    const Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && objectType == OBJECT_TYPE_ANALOG_OUTPUT) {
+    if (kind == PointKind::Setpoint) {
         bool slotIsSet = false;
         double slotValue = 0.0;
-        if (ReadPrioritySlot(c, propertyIdentifier, useArrayIndex, propertyArrayIndex,
+        if (ReadPrioritySlot(&slave->setpoint, propertyIdentifier, useArrayIndex, propertyArrayIndex,
                              &slotIsSet, &slotValue)) {
             if (!slotIsSet) {
-                return false;
+                return false; // the stack reports a relinquished slot as NULL
             }
             *value = (float)slotValue;
             return true;
         }
         if (propertyIdentifier == PROPERTY_IDENTIFIER_RELINQUISH_DEFAULT) {
-            *value = (float)c->relinquishDefault;
+            *value = (float)slave->setpoint.relinquishDefault;
             return true;
         }
     }
@@ -380,60 +521,44 @@ bool GetPropertyEnumerated(const uint32_t deviceInstance, const uint16_t objectT
                            uint32_t* value, const bool useArrayIndex,
                            const uint32_t propertyArrayIndex, uint32_t* errorCode) {
     (void)errorCode;
-    (void)useArrayIndex;
-    (void)propertyArrayIndex;
-    if (deviceInstance == VIRTUAL_DEVICE_INSTANCE) {
-        if (objectType == OBJECT_TYPE_ANALOG_INPUT &&
-            objectInstance == VIRTUAL_ANALOG_INPUT_INSTANCE &&
-            propertyIdentifier == PROPERTY_IDENTIFIER_UNITS) {
+    PointKind kind;
+    const GatewayedSlave* slave = FindMappedPoint(deviceInstance, objectType, objectInstance, &kind);
+    if (slave != NULL) {
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_RELIABILITY) {
+            // Annex H.2.3.2: a communication error with the foreign device is shown
+            // in Reliability, and through it (the stack builds Status_Flags from
+            // Reliability) in the FAULT flag.
+            *value = slave->online ? RELIABILITY_NO_FAULT_DETECTED : RELIABILITY_COMMUNICATION_FAILURE;
+            return true;
+        }
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_UNITS && kind != PointKind::Enable) {
             *value = ENGINEERING_UNITS_DEGREES_CELSIUS;
             return true;
         }
-        return false;
-    }
-    if (deviceInstance != g_deviceInstance) {
-        return false;
-    }
-    if (objectType == OBJECT_TYPE_BINARY_INPUT &&
-        objectInstance == BINARY_INPUT_INSTANCE) {
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-            *value = 0; // inactive - the series-wide starting value
-            return true;
-        }
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_POLARITY) {
-            *value = POLARITY_NORMAL;
-            return true;
-        }
-    }
-    const Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && objectType == OBJECT_TYPE_BINARY_OUTPUT) {
-        bool slotIsSet = false;
-        double slotValue = 0.0;
-        if (ReadPrioritySlot(c, propertyIdentifier, useArrayIndex, propertyArrayIndex,
-                             &slotIsSet, &slotValue)) {
-            if (!slotIsSet) {
-                return false;
+        if (kind == PointKind::Enable) {
+            bool slotIsSet = false;
+            double slotValue = 0.0;
+            if (ReadPrioritySlot(&slave->enable, propertyIdentifier, useArrayIndex, propertyArrayIndex,
+                                 &slotIsSet, &slotValue)) {
+                if (!slotIsSet) {
+                    return false;
+                }
+                *value = (uint32_t)slotValue;
+                return true;
             }
-            *value = (uint32_t)slotValue;
-            return true;
+            if (propertyIdentifier == PROPERTY_IDENTIFIER_RELINQUISH_DEFAULT) {
+                *value = (uint32_t)slave->enable.relinquishDefault;
+                return true;
+            }
+            if (propertyIdentifier == PROPERTY_IDENTIFIER_POLARITY) {
+                *value = POLARITY_NORMAL;
+                return true;
+            }
         }
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_RELINQUISH_DEFAULT) {
-            *value = (uint32_t)c->relinquishDefault;
-            return true;
-        }
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_POLARITY) {
-            *value = POLARITY_NORMAL;
-            return true;
-        }
+        return false;
     }
-    if (propertyIdentifier == PROPERTY_IDENTIFIER_UNITS &&
-        ((objectType == OBJECT_TYPE_ANALOG_INPUT && objectInstance == ANALOG_INPUT_INSTANCE) ||
-         (objectType == OBJECT_TYPE_ANALOG_OUTPUT && objectInstance == ANALOG_OUTPUT_INSTANCE))) {
-        *value = ENGINEERING_UNITS_DEGREES_CELSIUS;
-        return true;
-    }
-    if (objectType == OBJECT_TYPE_NETWORK_PORT &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_BACNET_IP_MODE) {
+    if (deviceInstance == g_deviceInstance && objectType == OBJECT_TYPE_NETWORK_PORT &&
+        objectInstance == NETWORK_PORT_INSTANCE && propertyIdentifier == PROPERTY_IDENTIFIER_BACNET_IP_MODE) {
         *value = BACNET_IP_MODE_NORMAL;
         return true;
     }
@@ -445,39 +570,17 @@ bool GetPropertyUnsignedInteger(const uint32_t deviceInstance, const uint16_t ob
                                 uint32_t* value, const bool useArrayIndex,
                                 const uint32_t propertyArrayIndex, uint32_t* errorCode) {
     (void)errorCode;
-    if (deviceInstance == VIRTUAL_DEVICE_INSTANCE) {
-        if (objectType == OBJECT_TYPE_DEVICE && objectInstance == VIRTUAL_DEVICE_INSTANCE &&
-            propertyIdentifier == PROPERTY_IDENTIFIER_VENDOR_IDENTIFIER) {
-            *value = VENDOR_IDENTIFIER;
-            return true;
-        }
-        return false;
-    }
-    if (deviceInstance != g_deviceInstance) {
-        return false;
-    }
-    if (objectType == OBJECT_TYPE_MULTI_STATE_INPUT &&
-        objectInstance == MULTI_STATE_INPUT_INSTANCE) {
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-            *value = 1;
-            return true;
-        }
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_NUMBER_OF_STATES) {
-            *value = MULTI_STATE_INPUT_NUMBER_OF_STATES;
-            return true;
-        }
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_STATE_TEXT &&
-            useArrayIndex && propertyArrayIndex == 0) {
-            *value = MULTI_STATE_INPUT_NUMBER_OF_STATES;
-            return true;
-        }
-    }
-    if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_VENDOR_IDENTIFIER) {
+    (void)useArrayIndex;
+    (void)propertyArrayIndex;
+    // Vendor_Identifier: the gateway and every virtual device.
+    if (objectType == OBJECT_TYPE_DEVICE && objectInstance == deviceInstance &&
+        propertyIdentifier == PROPERTY_IDENTIFIER_VENDOR_IDENTIFIER &&
+        (deviceInstance == g_deviceInstance || FindVirtualDevice(deviceInstance) != NULL)) {
         *value = VENDOR_IDENTIFIER;
         return true;
     }
-    if (objectType == OBJECT_TYPE_NETWORK_PORT && objectInstance == NETWORK_PORT_INSTANCE) {
+    if (deviceInstance == g_deviceInstance && objectType == OBJECT_TYPE_NETWORK_PORT &&
+        objectInstance == NETWORK_PORT_INSTANCE) {
         if (propertyIdentifier == PROPERTY_IDENTIFIER_APDU_LENGTH) {
             *value = MAX_APDU_LENGTH;
             return true;
@@ -491,27 +594,6 @@ bool GetPropertyUnsignedInteger(const uint32_t deviceInstance, const uint16_t ob
             return true;
         }
     }
-    const Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && objectType == OBJECT_TYPE_MULTI_STATE_OUTPUT) {
-        bool slotIsSet = false;
-        double slotValue = 0.0;
-        if (ReadPrioritySlot(c, propertyIdentifier, useArrayIndex, propertyArrayIndex,
-                             &slotIsSet, &slotValue)) {
-            if (!slotIsSet) {
-                return false;
-            }
-            *value = (uint32_t)slotValue;
-            return true;
-        }
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_RELINQUISH_DEFAULT) {
-            *value = (uint32_t)c->relinquishDefault;
-            return true;
-        }
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_NUMBER_OF_STATES) {
-            *value = MULTI_STATE_OUTPUT_NUMBER_OF_STATES;
-            return true;
-        }
-    }
     return false;
 }
 
@@ -520,44 +602,24 @@ bool GetPropertyBool(const uint32_t deviceInstance, const uint16_t objectType,
                      bool* value, const bool useArrayIndex,
                      const uint32_t propertyArrayIndex, uint32_t* errorCode) {
     (void)errorCode;
-    if (deviceInstance == VIRTUAL_DEVICE_INSTANCE) {
-        if (propertyIdentifier == PROPERTY_IDENTIFIER_OUT_OF_SERVICE &&
-            objectType == OBJECT_TYPE_ANALOG_INPUT &&
-            objectInstance == VIRTUAL_ANALOG_INPUT_INSTANCE) {
-            *value = false;
-            return true;
-        }
-        return false;
-    }
-    if (deviceInstance != g_deviceInstance) {
-        return false;
-    }
-    const Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && propertyIdentifier == PROPERTY_IDENTIFIER_PRIORITY_ARRAY &&
-        useArrayIndex && propertyArrayIndex >= 1 &&
-        propertyArrayIndex <= BACNET_PRIORITY_ARRAY_SIZE) {
-        *value = !c->isSet[propertyArrayIndex - 1];
+    const Commandable* command = FindCommandable(deviceInstance, objectType, objectInstance);
+    if (command != NULL && propertyIdentifier == PROPERTY_IDENTIFIER_PRIORITY_ARRAY &&
+        useArrayIndex && propertyArrayIndex >= 1 && propertyArrayIndex <= BACNET_PRIORITY_ARRAY_SIZE) {
+        *value = !command->isSet[propertyArrayIndex - 1]; // true = this slot is NULL
         return true;
     }
-    // Out_Of_Service: false for every input/output object AND the Network Port.
+    // Out_Of_Service: false for every mapped object and the Network Port.
     if (propertyIdentifier == PROPERTY_IDENTIFIER_OUT_OF_SERVICE &&
-        (objectType == OBJECT_TYPE_ANALOG_INPUT ||
-         objectType == OBJECT_TYPE_BINARY_INPUT ||
-         objectType == OBJECT_TYPE_MULTI_STATE_INPUT ||
-         objectType == OBJECT_TYPE_ANALOG_OUTPUT ||
-         objectType == OBJECT_TYPE_BINARY_OUTPUT ||
-         objectType == OBJECT_TYPE_MULTI_STATE_OUTPUT ||
-         objectType == OBJECT_TYPE_NETWORK_PORT)) {
+        (FindMappedPoint(deviceInstance, objectType, objectInstance, NULL) != NULL ||
+         (deviceInstance == g_deviceInstance && objectType == OBJECT_TYPE_NETWORK_PORT))) {
         *value = false;
         return true;
     }
     return false;
 }
 
-// OCTET STRING - the Network Port's addressing. Only the GATEWAY has a
-// Network Port object; the virtual network's Network Port
-// (VIRTUAL_NETWORK_PORT_INSTANCE) is created and fully populated internally by
-// BACnetStack_AddVirtualNetwork - this callback is never consulted for it.
+// OCTET STRING - the gateway's Network Port addressing. The virtual network's
+// Network Port (VIRTUAL_NETWORK_PORT_INSTANCE) is populated by the stack.
 bool GetPropertyOctetString(const uint32_t deviceInstance, const uint16_t objectType,
                             const uint32_t objectInstance, const uint32_t propertyIdentifier,
                             uint8_t* value, uint32_t* valueElementCount,
@@ -566,10 +628,8 @@ bool GetPropertyOctetString(const uint32_t deviceInstance, const uint16_t object
     (void)useArrayIndex;
     (void)propertyArrayIndex;
     (void)errorCode;
-    if (deviceInstance != g_deviceInstance ||
-        objectType != OBJECT_TYPE_NETWORK_PORT ||
-        objectInstance != NETWORK_PORT_INSTANCE ||
-        maxElementCount < 4) {
+    if (deviceInstance != g_deviceInstance || objectType != OBJECT_TYPE_NETWORK_PORT ||
+        objectInstance != NETWORK_PORT_INSTANCE || maxElementCount < 4) {
         return false;
     }
     const uint8_t* source = NULL;
@@ -584,15 +644,13 @@ bool GetPropertyOctetString(const uint32_t deviceInstance, const uint16_t object
     return true;
 }
 
-static bool ReturnCharacterString(const char* text, char* value,
-                                  uint32_t* valueElementCount,
-                                  const uint32_t maxElementCount,
-                                  uint8_t* encodingType) {
-    uint32_t length = (uint32_t)strlen(text);
+static bool ReturnCharacterString(const std::string& text, char* value, uint32_t* valueElementCount,
+                                  const uint32_t maxElementCount, uint8_t* encodingType) {
+    uint32_t length = (uint32_t)text.size();
     if (length > maxElementCount) {
         length = maxElementCount;
     }
-    memcpy(value, text, length);
+    memcpy(value, text.data(), length);
     *valueElementCount = length;
     *encodingType = CHARACTER_STRING_ENCODING_UTF8;
     return true;
@@ -606,105 +664,105 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
                            uint32_t* errorCode) {
     (void)useArrayIndex;
     (void)propertyArrayIndex;
+    (void)errorCode;
 
-    // --- The VIRTUAL device -------------------------------------------------
-    if (deviceInstance == VIRTUAL_DEVICE_INSTANCE) {
+    // --- The mapped objects (both modes) -------------------------------------
+    PointKind kind;
+    const GatewayedSlave* slave = FindMappedPoint(deviceInstance, objectType, objectInstance, &kind);
+    if (slave != NULL) {
         if (propertyIdentifier == PROPERTY_IDENTIFIER_OBJECT_NAME) {
-            if (objectType == OBJECT_TYPE_DEVICE && objectInstance == VIRTUAL_DEVICE_INSTANCE) {
-                return ReturnCharacterString(VIRTUAL_DEVICE_NAME, value, valueElementCount, maxElementCount, encodingType);
-            }
-            if (objectType == OBJECT_TYPE_ANALOG_INPUT && objectInstance == VIRTUAL_ANALOG_INPUT_INSTANCE) {
-                return ReturnCharacterString("Bronze", value, valueElementCount, maxElementCount, encodingType);
-            }
+            return ReturnCharacterString(MappedObjectName(kind, objectInstance), value, valueElementCount,
+                                         maxElementCount, encodingType);
         }
-        if (objectType == OBJECT_TYPE_DEVICE && objectInstance == VIRTUAL_DEVICE_INSTANCE) {
-            switch (propertyIdentifier) {
-                case PROPERTY_IDENTIFIER_DESCRIPTION:
-                    return ReturnCharacterString(VIRTUAL_DEVICE_DESCRIPTION, value, valueElementCount, maxElementCount, encodingType);
-                case PROPERTY_IDENTIFIER_VENDOR_NAME:
-                    return ReturnCharacterString(VENDOR_NAME, value, valueElementCount, maxElementCount, encodingType);
-                case PROPERTY_IDENTIFIER_MODEL_NAME:
-                    return ReturnCharacterString(VIRTUAL_MODEL_NAME, value, valueElementCount, maxElementCount, encodingType);
-                case PROPERTY_IDENTIFIER_FIRMWARE_REVISION:
-                    return ReturnCharacterString(g_firmwareRevision.c_str(), value, valueElementCount, maxElementCount, encodingType);
-                case PROPERTY_IDENTIFIER_APPLICATION_SOFTWARE_VERSION:
-                    return ReturnCharacterString(APP_VERSION, value, valueElementCount, maxElementCount, encodingType);
-                default:
-                    break;
-            }
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_DESCRIPTION) {
+            return ReturnCharacterString(MappedObjectDescription(*slave, kind), value, valueElementCount,
+                                         maxElementCount, encodingType);
         }
         return false;
     }
 
-    // --- The GATEWAY device --------------------------------------------------
+    // --- Network Port names ------------------------------------------------------
+    // The stack creates --mode vn's other Network Ports itself (the gateway's port
+    // to virtual network 100, and one inside each virtual device), but it asks
+    // this callback for their Object_Name like any other object's - unanswered,
+    // they would read "undefined".
+    const GatewayedSlave* virtualDevice = FindVirtualDevice(deviceInstance);
+    if (objectType == OBJECT_TYPE_NETWORK_PORT && propertyIdentifier == PROPERTY_IDENTIFIER_OBJECT_NAME) {
+        if (deviceInstance == g_deviceInstance && objectInstance == NETWORK_PORT_INSTANCE) {
+            return ReturnCharacterString("Vermilion", value, valueElementCount, maxElementCount, encodingType);
+        }
+        if (deviceInstance == g_deviceInstance && g_mode == GatewayMode::VirtualNetwork &&
+            objectInstance == VIRTUAL_NETWORK_PORT_INSTANCE) {
+            return ReturnCharacterString("Vermilion 2", value, valueElementCount, maxElementCount, encodingType);
+        }
+        if (virtualDevice != NULL) {
+            return ReturnCharacterString("Vermilion", value, valueElementCount, maxElementCount, encodingType);
+        }
+        return false;
+    }
+
+    // --- A virtual device's Device object (--mode vn) ------------------------
+    if (virtualDevice != NULL && objectType == OBJECT_TYPE_DEVICE && objectInstance == deviceInstance) {
+        switch (propertyIdentifier) {
+            case PROPERTY_IDENTIFIER_OBJECT_NAME:
+                return ReturnCharacterString(VirtualDeviceName(*virtualDevice), value, valueElementCount, maxElementCount, encodingType);
+            case PROPERTY_IDENTIFIER_DESCRIPTION:
+                return ReturnCharacterString(VirtualDeviceDescription(*virtualDevice), value, valueElementCount, maxElementCount, encodingType);
+            case PROPERTY_IDENTIFIER_VENDOR_NAME:
+                return ReturnCharacterString(VENDOR_NAME, value, valueElementCount, maxElementCount, encodingType);
+            case PROPERTY_IDENTIFIER_MODEL_NAME:
+                return ReturnCharacterString(VIRTUAL_MODEL_NAME, value, valueElementCount, maxElementCount, encodingType);
+            case PROPERTY_IDENTIFIER_FIRMWARE_REVISION:
+                return ReturnCharacterString(g_firmwareRevision, value, valueElementCount, maxElementCount, encodingType);
+            case PROPERTY_IDENTIFIER_APPLICATION_SOFTWARE_VERSION:
+                return ReturnCharacterString(APP_VERSION, value, valueElementCount, maxElementCount, encodingType);
+            default:
+                return false;
+        }
+    }
+
+    // --- The GATEWAY device -------------------------------------------------
     if (deviceInstance != g_deviceInstance) {
         return false;
     }
-
-    if (objectType == OBJECT_TYPE_MULTI_STATE_INPUT &&
-        objectInstance == MULTI_STATE_INPUT_INSTANCE &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_STATE_TEXT && useArrayIndex) {
-        static const char* const stateText[] = { "On", "Off", "Auto" };
-        if (propertyArrayIndex >= 1 && propertyArrayIndex <= MULTI_STATE_INPUT_NUMBER_OF_STATES) {
-            return ReturnCharacterString(stateText[propertyArrayIndex - 1], value,
-                                         valueElementCount, maxElementCount, encodingType);
-        }
-        *errorCode = ERROR_CODE_INVALID_ARRAY_INDEX;
-        return false;
-    }
-
-    if (propertyIdentifier == PROPERTY_IDENTIFIER_OBJECT_NAME) {
-        if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance) {
-            return ReturnCharacterString(DEVICE_NAME, value, valueElementCount, maxElementCount, encodingType);
-        }
-        if (objectType == OBJECT_TYPE_ANALOG_INPUT && objectInstance == ANALOG_INPUT_INSTANCE) {
-            return ReturnCharacterString("Bronze", value, valueElementCount, maxElementCount, encodingType);
-        }
-        if (objectType == OBJECT_TYPE_BINARY_INPUT && objectInstance == BINARY_INPUT_INSTANCE) {
-            return ReturnCharacterString("Emerald", value, valueElementCount, maxElementCount, encodingType);
-        }
-        if (objectType == OBJECT_TYPE_MULTI_STATE_INPUT && objectInstance == MULTI_STATE_INPUT_INSTANCE) {
-            return ReturnCharacterString("Hot Pink", value, valueElementCount, maxElementCount, encodingType);
-        }
-        if (objectType == OBJECT_TYPE_ANALOG_OUTPUT && objectInstance == ANALOG_OUTPUT_INSTANCE) {
-            return ReturnCharacterString("Chartreuse", value, valueElementCount, maxElementCount, encodingType);
-        }
-        if (objectType == OBJECT_TYPE_BINARY_OUTPUT && objectInstance == BINARY_OUTPUT_INSTANCE) {
-            return ReturnCharacterString("Fuchsia", value, valueElementCount, maxElementCount, encodingType);
-        }
-        if (objectType == OBJECT_TYPE_MULTI_STATE_OUTPUT && objectInstance == MULTI_STATE_OUTPUT_INSTANCE) {
-            return ReturnCharacterString("Indigo", value, valueElementCount, maxElementCount, encodingType);
-        }
-        if (objectType == OBJECT_TYPE_NETWORK_PORT && objectInstance == NETWORK_PORT_INSTANCE) {
-            return ReturnCharacterString("Vermilion", value, valueElementCount, maxElementCount, encodingType);
-        }
-    }
-
     if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance) {
         switch (propertyIdentifier) {
+            case PROPERTY_IDENTIFIER_OBJECT_NAME:
+                return ReturnCharacterString(DEVICE_NAME, value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_DESCRIPTION:
-                return ReturnCharacterString(DEVICE_DESCRIPTION, value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(g_mode == GatewayMode::EmbeddedObjects ? DEVICE_DESCRIPTION_EO : DEVICE_DESCRIPTION_VN,
+                                             value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_VENDOR_NAME:
                 return ReturnCharacterString(VENDOR_NAME, value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_MODEL_NAME:
                 return ReturnCharacterString(MODEL_NAME, value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_FIRMWARE_REVISION:
-                return ReturnCharacterString(g_firmwareRevision.c_str(), value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(g_firmwareRevision, value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_APPLICATION_SOFTWARE_VERSION:
                 return ReturnCharacterString(APP_VERSION, value, valueElementCount, maxElementCount, encodingType);
             default:
                 break;
         }
     }
-
     return false;
 }
 
 // -----------------------------------------------------------------------------
-// 2b. Property "set" callbacks - DS-WP-B. Only the GATEWAY has writable
-// objects (the commandable outputs); the virtual device's Analog Input is
-// read-only, exactly like the gateway's own Analog Input 1.
+// 5. Property "set" callbacks - DS-WP-B. A write to an output's Present_Value
+// fills one Priority_Array slot (NULL relinquishes it). The callback returns
+// at once - the slave gets the new winning value on the next pass of
+// ServiceForeignBus() (write caching, Annex H.2.1.1). A write while the slave
+// is offline is accepted the same way and lands when it comes back.
 // -----------------------------------------------------------------------------
+
+static void CommandWrite(Commandable* command, uint8_t priority, double value) {
+    const uint8_t slot = EffectivePriority(priority);
+    command->isSet[slot - 1] = true;
+    command->value[slot - 1] = value;
+}
+
+static const float SETPOINT_MINIMUM_DEGREES = -3276.8f;
+static const float SETPOINT_MAXIMUM_DEGREES = 3276.7f;
 
 bool SetPropertyReal(const uint32_t deviceInstance, const uint16_t objectType,
                      const uint32_t objectInstance, const uint32_t propertyIdentifier,
@@ -713,13 +771,20 @@ bool SetPropertyReal(const uint32_t deviceInstance, const uint16_t objectType,
                      uint32_t* errorCode) {
     (void)useArrayIndex;
     (void)propertyArrayIndex;
-    (void)errorCode;
-    Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && objectType == OBJECT_TYPE_ANALOG_OUTPUT &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-        CommandWrite(c, priority, (double)value);
-        printf("WriteProperty: Analog Output %u (Chartreuse) <- %.2f @ priority %u\n",
-               objectInstance, value, EffectivePriority(priority));
+    PointKind kind;
+    GatewayedSlave* slave = FindMappedPoint(deviceInstance, objectType, objectInstance, &kind);
+    if (slave != NULL && kind == PointKind::Setpoint && propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
+        // The holding register is a signed 16-bit value in tenths of a degree, so only
+        // -3276.8 .. 3276.7 can reach the slave. Refuse anything else (and NaN / infinity)
+        // here, while the client can still be told, rather than acknowledge a write that
+        // would wrap around in the register.
+        if (!(value >= SETPOINT_MINIMUM_DEGREES && value <= SETPOINT_MAXIMUM_DEGREES)) {
+            *errorCode = ERROR_CODE_VALUE_OUT_OF_RANGE;
+            return false;
+        }
+        CommandWrite(&slave->setpoint, priority, (double)value);
+        printf("WriteProperty: Analog Output %u (device %u) <- %.2f @ priority %u -> slave %u holding register 0\n",
+               objectInstance, deviceInstance, value, EffectivePriority(priority), slave->unitId);
         return true;
     }
     return false;
@@ -732,38 +797,17 @@ bool SetPropertyEnumerated(const uint32_t deviceInstance, const uint16_t objectT
                            uint32_t* errorCode) {
     (void)useArrayIndex;
     (void)propertyArrayIndex;
-    Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && objectType == OBJECT_TYPE_BINARY_OUTPUT &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
+    PointKind kind;
+    GatewayedSlave* slave = FindMappedPoint(deviceInstance, objectType, objectInstance, &kind);
+    if (slave != NULL && kind == PointKind::Enable && propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
         if (value > 1) {
             *errorCode = ERROR_CODE_VALUE_OUT_OF_RANGE;
             return false;
         }
-        CommandWrite(c, priority, (double)value);
-        printf("WriteProperty: Binary Output %u (Fuchsia) <- %s @ priority %u\n",
-               objectInstance, value ? "active" : "inactive", EffectivePriority(priority));
-        return true;
-    }
-    return false;
-}
-
-bool SetPropertyUnsignedInteger(const uint32_t deviceInstance, const uint16_t objectType,
-                                const uint32_t objectInstance, const uint32_t propertyIdentifier,
-                                const uint32_t value, const bool useArrayIndex,
-                                const uint32_t propertyArrayIndex, const uint8_t priority,
-                                uint32_t* errorCode) {
-    (void)useArrayIndex;
-    (void)propertyArrayIndex;
-    Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && objectType == OBJECT_TYPE_MULTI_STATE_OUTPUT &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-        if (value < 1 || value > MULTI_STATE_OUTPUT_NUMBER_OF_STATES) {
-            *errorCode = ERROR_CODE_VALUE_OUT_OF_RANGE;
-            return false;
-        }
-        CommandWrite(c, priority, (double)value);
-        printf("WriteProperty: Multi-State Output %u (Indigo) <- state %u @ priority %u\n",
-               objectInstance, value, EffectivePriority(priority));
+        CommandWrite(&slave->enable, priority, (double)value);
+        printf("WriteProperty: Binary Output %u (device %u) <- %s @ priority %u -> slave %u coil 0\n",
+               objectInstance, deviceInstance, value ? "active" : "inactive", EffectivePriority(priority),
+               slave->unitId);
         return true;
     }
     return false;
@@ -776,51 +820,37 @@ bool SetPropertyNull(const uint32_t deviceInstance, const uint16_t objectType,
     (void)useArrayIndex;
     (void)propertyArrayIndex;
     (void)errorCode;
-    Commandable* c = GetCommandable(deviceInstance, objectType, objectInstance);
-    if (c != NULL && propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-        CommandRelinquish(c, priority);
-        printf("WriteProperty: relinquished %s %u @ priority %u\n",
-               objectType == OBJECT_TYPE_ANALOG_OUTPUT ? "Analog Output" :
-               objectType == OBJECT_TYPE_BINARY_OUTPUT ? "Binary Output" :
-               "Multi-State Output",
-               objectInstance, EffectivePriority(priority));
+    Commandable* command = FindCommandable(deviceInstance, objectType, objectInstance);
+    if (command != NULL && propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
+        command->isSet[EffectivePriority(priority) - 1] = false;
+        printf("WriteProperty: relinquished %s %u (device %u) @ priority %u\n",
+               objectType == OBJECT_TYPE_ANALOG_OUTPUT ? "Analog Output" : "Binary Output",
+               objectInstance, deviceInstance, EffectivePriority(priority));
         return true;
     }
     return false;
 }
 
 // -----------------------------------------------------------------------------
-// 2c. DeviceCommunicationControl callback (DM-DCC-B) - ported verbatim from
-// B-ASC's main.cpp (see there for the full essay on the errorCode contract
-// this callback alone has). Only the GATEWAY answers DeviceCommunicationControl
-// - the profile card does not ask the virtual device to.
+// 6. DeviceCommunicationControl callback (DM-DCC-B) - ported from B-ASC's
+// main.cpp (see there for why this callback sets *errorCode on every reject).
+// Only the GATEWAY answers it.
 // -----------------------------------------------------------------------------
 bool DeviceCommunicationControl(const uint32_t deviceInstance, const uint8_t enableDisable,
                                 const char* password, const uint8_t passwordLength,
                                 const bool useTimeDuration, const uint16_t timeDuration,
                                 uint32_t* errorCode) {
     if (deviceInstance != g_deviceInstance) {
-        // Not our device (including the virtual device, which does not answer
-        // this service at all). Set *errorCode even here - a false return with
-        // *errorCode unset ships "Error Code = success(84)", meaningless on the wire.
         *errorCode = ERROR_CODE_OPTIONAL_FUNCTIONALITY_NOT_SUPPORTED;
         return false;
     }
-
-    // Check the password if this device requires one. A device with no configured
-    // password (DCC_PASSWORD == "") accepts any request. Compare by LENGTH FIRST,
-    // then bytes - a BACnet CharacterString may contain embedded NULs, so strcmp
-    // is never safe here.
+    // Compare the password by LENGTH FIRST, then bytes - a BACnet CharacterString
+    // may contain embedded NULs, so strcmp is never safe here.
     const size_t requiredLength = strlen(DCC_PASSWORD);
     if (requiredLength > 0) {
         bool matches = (password != NULL) && (passwordLength == requiredLength);
-        if (matches) {
-            for (size_t i = 0; i < requiredLength; ++i) {
-                if (password[i] != DCC_PASSWORD[i]) {
-                    matches = false;
-                    break;
-                }
-            }
+        for (size_t characterIndex = 0; matches && characterIndex < requiredLength; ++characterIndex) {
+            matches = password[characterIndex] == DCC_PASSWORD[characterIndex];
         }
         if (!matches) {
             printf("DeviceCommunicationControl: REJECTED (password failure)\n");
@@ -828,7 +858,6 @@ bool DeviceCommunicationControl(const uint32_t deviceInstance, const uint8_t ena
             return false;
         }
     }
-
     const char* action = (enableDisable == DCC_ENABLE) ? "enable (resume communication)" :
                          (enableDisable == DCC_DISABLE) ? "disable (1) - DEPRECATED, the stack will reject this" :
                          (enableDisable == DCC_DISABLE_INITIATION) ? "disable-initiation (keep responding)" :
@@ -842,17 +871,159 @@ bool DeviceCommunicationControl(const uint32_t deviceInstance, const uint8_t ena
 }
 
 // -----------------------------------------------------------------------------
-// 2d. Announce both devices (start-up and the 'r' key)
+// 7. Announcements and the virtual devices' discoverability (--mode vn)
 // -----------------------------------------------------------------------------
-static void AnnounceBothDevices() {
-    CASExampleHelper::SendIAm(g_deviceInstance, NETWORK_PORT_INSTANCE);
-    CASExampleHelper::SendIAm(VIRTUAL_DEVICE_INSTANCE, NETWORK_PORT_INSTANCE);
-    printf("FYI: I-Am broadcast for the gateway (Device %u) and the virtual device "
-           "(Device %u).\n", g_deviceInstance, VIRTUAL_DEVICE_INSTANCE);
+
+// A destination connection string for "the local subnet broadcast of the
+// gateway's port" (the same address common/'s SendIAm uses internally).
+static void BuildLocalBroadcastConnectionString(uint16_t port, uint8_t connectionString[6]) {
+    uint8_t broadcastAddress[4] = { 255, 255, 255, 255 };
+    uint8_t localAddress[4], localMask[4];
+    if (CASExampleHelper::GetLocalIPv4(localAddress, localMask)) {
+        for (int octetIndex = 0; octetIndex < 4; ++octetIndex) {
+            broadcastAddress[octetIndex] = (uint8_t)(localAddress[octetIndex] | ~localMask[octetIndex]);
+        }
+    }
+    memcpy(connectionString, broadcastAddress, 4);
+    connectionString[4] = (uint8_t)((port >> 8) & 0xFF);
+    connectionString[5] = (uint8_t)(port & 0xFF);
+}
+
+// --mode vn: the gateway is a router to the virtual network (Annex H.1.1.1),
+// so it says so - I-Am-Router-To-Network(100) broadcast on its port (cl. 6.6.2
+// has a router broadcast this at start-up). The stack's virtual router also
+// answers Who-Is-Router-To-Network for network 100 by itself (NM-RC-B).
+static void AnnounceVirtualNetwork() {
+    const uint16_t reachableNetworks[] = { VIRTUAL_NETWORK_NUMBER };
+    uint8_t connectionString[6];
+    BuildLocalBroadcastConnectionString(g_bacnetIpUdpPort, connectionString);
+    const bool sent = BACnetStack_SendIAmRouterToNetwork(reachableNetworks, 1, connectionString, 6,
+                                                         NETWORK_PORT_INSTANCE, true, 0, NULL, 0);
+    printf("FYI: I-Am-Router-To-Network(%u) broadcast: %s\n", (unsigned)VIRTUAL_NETWORK_NUMBER,
+           sent ? "sent" : "FAILED");
+}
+
+static void SendIAmForVirtualDevice(const GatewayedSlave& slave) {
+    CASExampleHelper::SendIAm(slave.virtualDeviceInstance, NETWORK_PORT_INSTANCE);
+}
+
+// Annex H.2.2.1: "When a gateway has determined that a non-BACnet device is
+// offline, it shall also not send I-Am or I-Have requests on behalf of that
+// device." Switching the virtual device's Who-Is and Who-Has off does exactly
+// that - the stack stops answering them for that device only. The SAME clause
+// also says requests directed to an offline device get no answer at all; the
+// stack has no customer export to silence a virtual device's ReadProperty
+// (disabling the service would answer it with a Reject - an answer). So reads
+// are still answered, from the cache, with Reliability COMMUNICATION_FAILURE.
+// That part is a documented gap: README "Known gaps" and TODO.md.
+static void SetVirtualDeviceDiscoverable(const GatewayedSlave& slave, bool discoverable) {
+    if (!BACnetStack_SetServiceEnabled(slave.virtualDeviceInstance, SERVICE_WHO_IS, discoverable) ||
+        !BACnetStack_SetServiceEnabled(slave.virtualDeviceInstance, SERVICE_WHO_HAS, discoverable)) {
+        printf("Error: could not %s discovery for virtual device %u.\n", discoverable ? "restore" : "stop",
+               slave.virtualDeviceInstance);
+    }
 }
 
 // -----------------------------------------------------------------------------
-// 3. main()
+// 8. Building the objects
+// -----------------------------------------------------------------------------
+
+// One slave's three mapped objects, on deviceInstance (the gateway in --mode
+// eo, the slave's virtual device in --mode vn), at objectInstance.
+static bool AddMappedObjects(uint32_t deviceInstance, uint32_t objectInstance) {
+    const uint16_t objectTypes[] = { OBJECT_TYPE_ANALOG_INPUT, OBJECT_TYPE_ANALOG_OUTPUT, OBJECT_TYPE_BINARY_OUTPUT };
+    for (uint16_t objectType : objectTypes) {
+        if (!BACnetStack_AddObject(deviceInstance, objectType, objectInstance) ||
+            // Reliability is optional on these types; a gateway needs it (H.2.3.2).
+            !BACnetStack_SetPropertyEnabled(deviceInstance, objectType, objectInstance,
+                                            PROPERTY_IDENTIFIER_RELIABILITY, true) ||
+            !BACnetStack_SetPropertyEnabled(deviceInstance, objectType, objectInstance,
+                                            PROPERTY_IDENTIFIER_DESCRIPTION, true)) {
+            printf("Error: failed to add object type %u instance %u to device %u.\n",
+                   objectType, objectInstance, deviceInstance);
+            return false;
+        }
+        if (objectType == OBJECT_TYPE_ANALOG_INPUT) {
+            continue;
+        }
+        // The outputs are commandable: Priority_Array + Relinquish_Default, and a
+        // writable Present_Value.
+        if (!BACnetStack_SetPropertyEnabled(deviceInstance, objectType, objectInstance,
+                                            PROPERTY_IDENTIFIER_PRIORITY_ARRAY, true) ||
+            !BACnetStack_SetPropertyEnabled(deviceInstance, objectType, objectInstance,
+                                            PROPERTY_IDENTIFIER_RELINQUISH_DEFAULT, true) ||
+            !BACnetStack_SetPropertyWritable(deviceInstance, objectType, objectInstance,
+                                             PROPERTY_IDENTIFIER_PRESENT_VALUE, true)) {
+            printf("Error: failed to make object type %u instance %u on device %u commandable.\n",
+                   objectType, objectInstance, deviceInstance);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool EnableDeviceServices(uint32_t deviceInstance, bool answersDeviceCommunicationControl) {
+    // DS-RP-B, DS-WP-B, DM-DDB-B (Who-Is/I-Am), DM-DOB-B (Who-Has/I-Have).
+    const uint32_t services[] = { SERVICE_READ_PROPERTY, SERVICE_WRITE_PROPERTY, SERVICE_WHO_IS,
+                                  SERVICE_I_AM, SERVICE_WHO_HAS, SERVICE_I_HAVE };
+    for (uint32_t service : services) {
+        if (!BACnetStack_SetServiceEnabled(deviceInstance, service, true)) {
+            printf("Error: failed to enable service %u on device %u.\n", service, deviceInstance);
+            return false;
+        }
+    }
+    // DM-DCC-B.
+    if (answersDeviceCommunicationControl &&
+        !BACnetStack_SetServiceEnabled(deviceInstance, SERVICE_DEVICE_COMMUNICATION_CONTROL, true)) {
+        printf("Error: failed to enable DeviceCommunicationControl.\n");
+        return false;
+    }
+    return true;
+}
+
+// --mode eo|vn. Anything else is an error (exit), never a silent default.
+static bool ParseModeArg(int argc, char** argv) {
+    for (int argumentIndex = 1; argumentIndex < argc; ++argumentIndex) {
+        if (strcmp(argv[argumentIndex], "--mode") != 0) {
+            continue;
+        }
+        const char* modeText = (argumentIndex + 1 < argc) ? argv[argumentIndex + 1] : "";
+        if (strcmp(modeText, "eo") == 0) {
+            g_mode = GatewayMode::EmbeddedObjects;
+        } else if (strcmp(modeText, "vn") == 0) {
+            g_mode = GatewayMode::VirtualNetwork;
+        } else {
+            printf("Error: --mode must be 'eo' (GW-EO-B, the default) or 'vn' (GW-VN-B), not '%s'.\n", modeText);
+            return false;
+        }
+    }
+    return true;
+}
+
+static void PrintExampleCommands() {
+    printf("This example also has:\n");
+    printf("  --mode eo|vn  eo (default): GW-EO-B, the slaves' data as objects in the gateway.\n");
+    printf("                vn: GW-VN-B, each slave a virtual device on virtual network %u.\n",
+           (unsigned)VIRTUAL_NETWORK_NUMBER);
+    printf("  up / down     nudge the SIMULATED Boiler's sensor by 1.1 C (Analog Input 1 follows)\n");
+    printf("  k             kill / revive the SIMULATED Boiler (slave 1) - the Failure Mode\n");
+    printf("  r             re-send I-Am-Router-To-Network (vn) or the gateway's I-Am (eo)\n");
+}
+
+static void NudgeSimulatedBoiler(double degrees) {
+    uint16_t registerValue = 0;
+    const uint8_t boiler = SimulatedForeignBus::FIRST_UNIT_ID;
+    SimulatedForeignBus::GetPoint(boiler, ForeignBus::Table::InputRegister,
+                                  SimulatedForeignBus::INPUT_REGISTER_MEASURED_TEMPERATURE, &registerValue);
+    registerValue = (uint16_t)((int16_t)registerValue + (int16_t)(degrees * 10.0));
+    SimulatedForeignBus::SetPoint(boiler, ForeignBus::Table::InputRegister,
+                                  SimulatedForeignBus::INPUT_REGISTER_MEASURED_TEMPERATURE, registerValue);
+    printf("SIMULATION: Boiler sensor = %.1f C (the gateway reads it on its next poll)\n",
+           (int16_t)registerValue / 10.0);
+}
+
+// -----------------------------------------------------------------------------
+// 9. main()
 // -----------------------------------------------------------------------------
 int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -862,35 +1033,52 @@ int main(int argc, char** argv) {
                 CASBACnetStackAdapter_LastError());
         return 1;
     }
-
-    // g_firmwareRevision (Device object property 44) - see its own doc
-    // comment above for why this is the STACK's version, not this example's
-    // own (that's Application_Software_Version/APP_VERSION instead). Must
-    // happen after LoadBACnetFunctions() (these getters ARE some of the
-    // functions it loads) and before the Device object is ever readable.
     {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
+        char versionText[32];
+        snprintf(versionText, sizeof(versionText), "%u.%u.%u.%u",
                  BACnetStack_GetAPIMajorVersion(), BACnetStack_GetAPIMinorVersion(),
                  BACnetStack_GetAPIPatchVersion(), BACnetStack_GetAPIBuildVersion());
-        g_firmwareRevision = buf;
+        g_firmwareRevision = versionText;
     }
 
     if (CASExampleHelper::HandleHelpAndVersionArgs(argc, argv, APP_NAME, APP_VERSION)) {
+        for (int argumentIndex = 1; argumentIndex < argc; ++argumentIndex) {
+            if (strcmp(argv[argumentIndex], "--version") != 0) {
+                PrintExampleCommands();
+                break;
+            }
+        }
         return 0;
+    }
+    if (!ParseModeArg(argc, argv)) {
+        return 1;
     }
     const uint16_t port = CASExampleHelper::ParsePortArg(argc, argv, 47808);
     g_deviceInstance = CASExampleHelper::ParseDeviceIdArg(argc, argv, g_deviceInstance);
+    if (g_mode == GatewayMode::VirtualNetwork && FindVirtualDevice(g_deviceInstance) != NULL) {
+        printf("Error: --deviceID %u is one of the virtual devices' instances (%u-%u); pick another.\n",
+               g_deviceInstance, FIRST_VIRTUAL_DEVICE_INSTANCE,
+               FIRST_VIRTUAL_DEVICE_INSTANCE + SimulatedForeignBus::SLAVE_COUNT - 1);
+        return 1;
+    }
     CASExampleHelper::PrintVersion(APP_NAME, APP_VERSION);
+    printf("Mode: %s\n", g_mode == GatewayMode::EmbeddedObjects
+                             ? "eo - GW-EO-B, the slaves' data as objects in the gateway"
+                             : "vn - GW-VN-B, each slave a virtual device on a virtual network");
 
-    // --- Bind the BACnet/IP socket (one port serves BOTH devices) -----------
+    // --- Bind the BACnet/IP socket -------------------------------------------
     if (!CASExampleHelper::SetupUDP(port)) {
         return 1;
     }
     g_bacnetIpUdpPort = port;
     if (!CASExampleHelper::GetLocalIPv4(g_ipAddress, g_ipSubnetMask)) {
-        printf("FYI: could not read a local IPv4 address; Network Port IP_Address "
-               "will report 0.0.0.0.\n");
+        printf("FYI: could not read a local IPv4 address; Network Port IP_Address will report 0.0.0.0.\n");
+    }
+
+    // --- The foreign bus (SIMULATION in this example) ------------------------
+    ForeignBus::Start();
+    if (!SimulationControl::Start()) {
+        return 1;
     }
 
     // --- Register callbacks --------------------------------------------------
@@ -904,67 +1092,17 @@ int main(int argc, char** argv) {
     BACnetStack_RegisterCallbackGetPropertyOctetString(GetPropertyOctetString);
     BACnetStack_RegisterCallbackSetPropertyReal(SetPropertyReal);
     BACnetStack_RegisterCallbackSetPropertyEnumerated(SetPropertyEnumerated);
-    BACnetStack_RegisterCallbackSetPropertyUnsignedInteger(SetPropertyUnsignedInteger);
     BACnetStack_RegisterCallbackSetPropertyNull(SetPropertyNull);
     BACnetStack_RegisterCallbackDeviceCommunicationControl(DeviceCommunicationControl);
 
-    // --- Create the GATEWAY device --------------------------------------------
+    // --- The GATEWAY device ---------------------------------------------------
     if (!BACnetStack_AddDevice(g_deviceInstance)) {
         printf("Error: Failed to add the Device %u.\n", g_deviceInstance);
         return 1;
     }
-
-    // DS-RP-B, DS-WP-B, DM-DCC-B.
-    if (!BACnetStack_SetServiceEnabled(g_deviceInstance, SERVICE_READ_PROPERTY, true)) {
-        printf("Error: Failed to enable the ReadProperty service.\n");
+    if (!EnableDeviceServices(g_deviceInstance, true)) {
         return 1;
     }
-    if (!BACnetStack_SetServiceEnabled(g_deviceInstance, SERVICE_WRITE_PROPERTY, true)) {
-        printf("Error: Failed to enable the WriteProperty service.\n");
-        return 1;
-    }
-    if (!BACnetStack_SetServiceEnabled(g_deviceInstance, SERVICE_DEVICE_COMMUNICATION_CONTROL, true)) {
-        printf("Error: Failed to enable the DeviceCommunicationControl service.\n");
-        return 1;
-    }
-    // DM-DDB-B, DM-DOB-B: Who-Is/I-Am, Who-Has/I-Have.
-    if (!BACnetStack_SetServiceEnabled(g_deviceInstance, SERVICE_WHO_IS, true) ||
-        !BACnetStack_SetServiceEnabled(g_deviceInstance, SERVICE_I_AM, true) ||
-        !BACnetStack_SetServiceEnabled(g_deviceInstance, SERVICE_WHO_HAS, true) ||
-        !BACnetStack_SetServiceEnabled(g_deviceInstance, SERVICE_I_HAVE, true)) {
-        printf("Error: Failed to enable the discovery services (Who-Is/I-Am, Who-Has/I-Have).\n");
-        return 1;
-    }
-
-    // --- Add the GATEWAY's read-only sensor objects ---------------------------
-    if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_ANALOG_INPUT, ANALOG_INPUT_INSTANCE)) {
-        printf("Error: Failed to add Analog Input %u (Bronze).\n", ANALOG_INPUT_INSTANCE);
-        return 1;
-    }
-    if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_BINARY_INPUT, BINARY_INPUT_INSTANCE)) {
-        printf("Error: Failed to add Binary Input %u (Emerald).\n", BINARY_INPUT_INSTANCE);
-        return 1;
-    }
-    if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_MULTI_STATE_INPUT, MULTI_STATE_INPUT_INSTANCE)) {
-        printf("Error: Failed to add Multi-State Input %u (Hot Pink).\n", MULTI_STATE_INPUT_INSTANCE);
-        return 1;
-    }
-
-    // --- Add the GATEWAY's commandable OUTPUT objects --------------------------
-    if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_ANALOG_OUTPUT, ANALOG_OUTPUT_INSTANCE)) {
-        printf("Error: Failed to add Analog Output %u (Chartreuse).\n", ANALOG_OUTPUT_INSTANCE);
-        return 1;
-    }
-    if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_BINARY_OUTPUT, BINARY_OUTPUT_INSTANCE)) {
-        printf("Error: Failed to add Binary Output %u (Fuchsia).\n", BINARY_OUTPUT_INSTANCE);
-        return 1;
-    }
-    if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_MULTI_STATE_OUTPUT, MULTI_STATE_OUTPUT_INSTANCE)) {
-        printf("Error: Failed to add Multi-State Output %u (Indigo).\n", MULTI_STATE_OUTPUT_INSTANCE);
-        return 1;
-    }
-
-    // --- Add the GATEWAY's Network Port object --------------------------------
     if (!BACnetStack_AddNetworkPortObject(
             g_deviceInstance, NETWORK_PORT_INSTANCE,
             NETWORK_PORT_NETWORK_TYPE_IPV4,
@@ -975,117 +1113,93 @@ int main(int argc, char** argv) {
         printf("Error: Failed to add Network Port 1 (Vermilion).\n");
         return 1;
     }
-
-    // --- Enable the OPTIONAL properties we choose to expose on the GATEWAY ----
     if (!BACnetStack_SetPropertyEnabled(g_deviceInstance, OBJECT_TYPE_DEVICE,
                                         g_deviceInstance, PROPERTY_IDENTIFIER_DESCRIPTION, true)) {
         printf("Error: Failed to enable Description on the Device object.\n");
         return 1;
     }
-    if (!BACnetStack_SetPropertyEnabled(g_deviceInstance, OBJECT_TYPE_MULTI_STATE_INPUT,
-                                        MULTI_STATE_INPUT_INSTANCE, PROPERTY_IDENTIFIER_STATE_TEXT, true)) {
-        printf("Error: Failed to enable State_Text on Multi-State Input 1 (Hot Pink).\n");
-        return 1;
-    }
 
-    // --- Make the GATEWAY's output objects commandable -------------------------
-    struct CommandableObject { uint16_t type; uint32_t instance; };
-    const CommandableObject outputs[] = {
-        { OBJECT_TYPE_ANALOG_OUTPUT,      ANALOG_OUTPUT_INSTANCE },
-        { OBJECT_TYPE_BINARY_OUTPUT,      BINARY_OUTPUT_INSTANCE },
-        { OBJECT_TYPE_MULTI_STATE_OUTPUT, MULTI_STATE_OUTPUT_INSTANCE },
-    };
-    for (size_t i = 0; i < sizeof(outputs) / sizeof(outputs[0]); ++i) {
-        if (!BACnetStack_SetPropertyEnabled(g_deviceInstance, outputs[i].type, outputs[i].instance,
-                                            PROPERTY_IDENTIFIER_PRIORITY_ARRAY, true) ||
-            !BACnetStack_SetPropertyEnabled(g_deviceInstance, outputs[i].type, outputs[i].instance,
-                                            PROPERTY_IDENTIFIER_RELINQUISH_DEFAULT, true) ||
-            !BACnetStack_SetPropertyWritable(g_deviceInstance, outputs[i].type, outputs[i].instance,
-                                             PROPERTY_IDENTIFIER_PRESENT_VALUE, true)) {
-            printf("Error: Failed to make object type %u instance %u commandable.\n",
-                   outputs[i].type, outputs[i].instance);
+    if (g_mode == GatewayMode::EmbeddedObjects) {
+        // --- GW-EO-B: every slave's points are objects in the gateway --------
+        for (const GatewayedSlave& slave : g_slaves) {
+            if (!AddMappedObjects(g_deviceInstance, slave.unitId)) {
+                return 1;
+            }
+        }
+    } else {
+        // --- GW-VN-B: a virtual network, and a virtual device per slave ------
+        // BACnetStack_AddVirtualNetwork turns the gateway into a virtual router
+        // and creates the Network Port object for the virtual network.
+        if (!BACnetStack_AddVirtualNetwork(g_deviceInstance, VIRTUAL_NETWORK_NUMBER, VIRTUAL_NETWORK_PORT_INSTANCE)) {
+            printf("Error: Failed to add virtual network %u (built without STACK_OPTION_VIRTUAL_ROUTER?).\n",
+                   (unsigned)VIRTUAL_NETWORK_NUMBER);
             return 1;
+        }
+        for (const GatewayedSlave& slave : g_slaves) {
+            // From here on the virtual device instance is a full device: AddObject,
+            // SetServiceEnabled and SetPropertyEnabled all take it directly.
+            if (!BACnetStack_AddDeviceToVirtualNetwork(slave.virtualDeviceInstance, VIRTUAL_NETWORK_NUMBER) ||
+                !EnableDeviceServices(slave.virtualDeviceInstance, false) ||
+                !BACnetStack_SetPropertyEnabled(slave.virtualDeviceInstance, OBJECT_TYPE_DEVICE,
+                                                slave.virtualDeviceInstance, PROPERTY_IDENTIFIER_DESCRIPTION, true) ||
+                !AddMappedObjects(slave.virtualDeviceInstance, 1)) {
+                printf("Error: Failed to set up virtual device %u.\n", slave.virtualDeviceInstance);
+                return 1;
+            }
         }
     }
 
-    // --- F-GATEWAY (GW-VN-B): create the virtual network and the virtual device ----
-    //
-    // BACnetStack_AddVirtualNetwork turns the GATEWAY into a virtual router and
-    // creates a Network Port object (VIRTUAL_NETWORK_PORT_INSTANCE) for the new
-    // virtual network - fully populated by the stack, nothing for this
-    // application's Get*Property callbacks to serve. Must be called after
-    // BACnetStack_AddDevice and names the SAME deviceInstance passed there.
-    if (!BACnetStack_AddVirtualNetwork(g_deviceInstance, VIRTUAL_NETWORK_NUMBER, VIRTUAL_NETWORK_PORT_INSTANCE)) {
-        printf("Error: Failed to add virtual network %u (built without STACK_OPTION_VIRTUAL_ROUTER?).\n",
-               (unsigned)VIRTUAL_NETWORK_NUMBER);
-        return 1;
-    }
-    // BACnetStack_AddDeviceToVirtualNetwork adds the VIRTUAL device itself, on
-    // the network just created. From here on VIRTUAL_DEVICE_INSTANCE is a full
-    // device: BACnetStack_AddObject/SetServiceEnabled/SetPropertyEnabled all take
-    // it directly as their deviceInstance parameter.
-    if (!BACnetStack_AddDeviceToVirtualNetwork(VIRTUAL_DEVICE_INSTANCE, VIRTUAL_NETWORK_NUMBER)) {
-        printf("Error: Failed to add the virtual device %u to virtual network %u.\n",
-               VIRTUAL_DEVICE_INSTANCE, (unsigned)VIRTUAL_NETWORK_NUMBER);
-        return 1;
-    }
-    // The virtual device answers ReadProperty on itself (DS-RP-B) and discovery
-    // (DM-DDB-B/DM-DOB-B) - the same services the gateway enables above, but this
-    // is a SEPARATE device object with its own service-enabled bits.
-    if (!BACnetStack_SetServiceEnabled(VIRTUAL_DEVICE_INSTANCE, SERVICE_READ_PROPERTY, true) ||
-        !BACnetStack_SetServiceEnabled(VIRTUAL_DEVICE_INSTANCE, SERVICE_WHO_IS, true) ||
-        !BACnetStack_SetServiceEnabled(VIRTUAL_DEVICE_INSTANCE, SERVICE_I_AM, true) ||
-        !BACnetStack_SetServiceEnabled(VIRTUAL_DEVICE_INSTANCE, SERVICE_WHO_HAS, true) ||
-        !BACnetStack_SetServiceEnabled(VIRTUAL_DEVICE_INSTANCE, SERVICE_I_HAVE, true)) {
-        printf("Error: Failed to enable services on the virtual device %u.\n", VIRTUAL_DEVICE_INSTANCE);
-        return 1;
-    }
-    // The virtual device's own Analog Input 1 (Bronze) - proves GW-VN-B by
-    // giving the represented device something to actually be read.
-    if (!BACnetStack_AddObject(VIRTUAL_DEVICE_INSTANCE, OBJECT_TYPE_ANALOG_INPUT, VIRTUAL_ANALOG_INPUT_INSTANCE)) {
-        printf("Error: Failed to add Analog Input %u (Bronze) to the virtual device %u.\n",
-               VIRTUAL_ANALOG_INPUT_INSTANCE, VIRTUAL_DEVICE_INSTANCE);
-        return 1;
-    }
-    if (!BACnetStack_SetPropertyEnabled(VIRTUAL_DEVICE_INSTANCE, OBJECT_TYPE_DEVICE,
-                                        VIRTUAL_DEVICE_INSTANCE, PROPERTY_IDENTIFIER_DESCRIPTION, true)) {
-        printf("Error: Failed to enable Description on the virtual Device object.\n");
-        return 1;
+    // --- Announce ---------------------------------------------------------------
+    CASExampleHelper::SendIAm(g_deviceInstance, NETWORK_PORT_INSTANCE);
+    if (g_mode == GatewayMode::VirtualNetwork) {
+        AnnounceVirtualNetwork();
+        for (const GatewayedSlave& slave : g_slaves) {
+            SendIAmForVirtualDevice(slave);
+        }
     }
 
-    // Who-Is is answered automatically for both devices (DM-DDB-B). Broadcast an
-    // unsolicited I-Am for EACH (DM-DDB-A-equivalent start-up courtesy, though
-    // only DM-DDB-B is claimed - see the README for why an initial I-Am does not
-    // by itself claim DM-DDB-A).
-    AnnounceBothDevices();
+    printf("FYI: Device %u (\"%s\") ready. Vendor ID %u. Gatewaying %u slaves on a SIMULATED "
+           "foreign bus (%s). Press 'h' for help.\n",
+           g_deviceInstance, DEVICE_NAME, VENDOR_IDENTIFIER, (unsigned)SimulatedForeignBus::SLAVE_COUNT,
+           g_mode == GatewayMode::EmbeddedObjects ? "--mode eo: objects in this device"
+                                                  : "--mode vn: virtual devices 389119-389121 on network 100");
 
-    printf("FYI: Device %u (\"%s\") ready. Vendor ID %u. Gateways virtual Device %u "
-           "(\"%s\") on virtual network %u. Press 'h' for help.\n",
-           g_deviceInstance, DEVICE_NAME, VENDOR_IDENTIFIER,
-           VIRTUAL_DEVICE_INSTANCE, VIRTUAL_DEVICE_NAME, (unsigned)VIRTUAL_NETWORK_NUMBER);
-
-    // --- Run the stack ------------------------------------------------------
+    // --- Run --------------------------------------------------------------------
     bool running = true;
     while (running) {
         BACnetStack_Tick();
+        ServiceForeignBus();
+        SimulationControl::Service();
 
         switch (CASExampleHelper::PollKey()) {
             case CASExampleHelper::KeyCommand::Help:
                 CASExampleHelper::PrintHelp(APP_NAME, APP_VERSION);
+                PrintExampleCommands();
                 break;
             case CASExampleHelper::KeyCommand::Quit:
                 running = false;
                 break;
             case CASExampleHelper::KeyCommand::ArrowUp:
-                g_analogInput1Value += 1.1f;
-                printf("Analog Input 1 (Bronze) = %.1f C\n", g_analogInput1Value);
+                NudgeSimulatedBoiler(1.1);
                 break;
             case CASExampleHelper::KeyCommand::ArrowDown:
-                g_analogInput1Value -= 1.1f;
-                printf("Analog Input 1 (Bronze) = %.1f C\n", g_analogInput1Value);
+                NudgeSimulatedBoiler(-1.1);
                 break;
+            case CASExampleHelper::KeyCommand::SimulatedPeerToggle: {
+                const uint8_t boiler = SimulatedForeignBus::FIRST_UNIT_ID;
+                const bool online = !SimulatedForeignBus::IsSlaveOnline(boiler);
+                SimulatedForeignBus::SetSlaveOnline(boiler, online);
+                printf("SIMULATION: the Boiler (slave %u) is now %s.\n", boiler,
+                       online ? "back ONLINE" : "OFFLINE - watch its objects go to fault");
+                break;
+            }
             case CASExampleHelper::KeyCommand::RouterAnnounce:
-                AnnounceBothDevices();
+                if (g_mode == GatewayMode::VirtualNetwork) {
+                    AnnounceVirtualNetwork();
+                } else {
+                    CASExampleHelper::SendIAm(g_deviceInstance, NETWORK_PORT_INSTANCE);
+                    printf("FYI: --mode eo is not a router; re-sent the gateway's I-Am instead.\n");
+                }
                 break;
             case CASExampleHelper::KeyCommand::None:
             default:
@@ -1099,6 +1213,7 @@ int main(int argc, char** argv) {
 #endif
     }
 
+    SimulationControl::Stop();
     CASExampleHelper::RestoreInput();
     CASExampleHelper::ShutdownUDP();
     return 0;
