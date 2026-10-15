@@ -59,11 +59,19 @@ class Answer:
 
 
 class Client(Endpoint):
-    """An Endpoint that sends confirmed requests to one device and waits for the answers."""
+    """An Endpoint that sends confirmed requests to one device and waits for the answers.
 
-    def __init__(self, port=0, bind_ip="127.0.0.1"):
+    `retries` (default 0): how many times an unanswered request is sent again, with the
+    SAME invoke id, before it counts as unanswered - what a BACnet client does
+    (Number_Of_APDU_Retries; TimeoutUnsegmented in the client state machine, cl. 5.4.4).
+    Each retry prints a [RETRY] line, so a device that needed one is visible in the test
+    output rather than silently tolerated. Leave it at 0 where "no answer" is the thing
+    being tested."""
+
+    def __init__(self, port=0, bind_ip="127.0.0.1", retries=0):
         super().__init__(port, bind_ip)
         self._invoke_id = 0
+        self.retries = retries
 
     def _next_invoke_id(self):
         self._invoke_id = (self._invoke_id + 1) % 256
@@ -74,11 +82,18 @@ class Client(Endpoint):
         With `dnet`, the request is addressed to DNET/DADR through the device at ip:port."""
         invoke_id = self._next_invoke_id()
         self.frames.clear()
-        self.send(codec.bvlc(codec.npdu(build_apdu(invoke_id), dnet=dnet, dadr=dadr, expecting_reply=True)), port, ip)
-        frame = self.wait_for(lambda candidate: candidate.network_message is None and
-                              candidate.pdu_type in (codec.PDU_COMPLEX_ACK, codec.PDU_SIMPLE_ACK, codec.PDU_ERROR,
-                                                     codec.PDU_REJECT, codec.PDU_ABORT) and
-                              candidate.invoke_id == invoke_id, timeout)
+        octets = codec.bvlc(codec.npdu(build_apdu(invoke_id), dnet=dnet, dadr=dadr, expecting_reply=True))
+        frame = None
+        for attempt in range(1 + self.retries):
+            if attempt:
+                print(f"[RETRY] invoke id {invoke_id} unanswered after {timeout} s - sent again", flush=True)
+            self.send(octets, port, ip)
+            frame = self.wait_for(lambda candidate: candidate.network_message is None and
+                                  candidate.pdu_type in (codec.PDU_COMPLEX_ACK, codec.PDU_SIMPLE_ACK, codec.PDU_ERROR,
+                                                         codec.PDU_REJECT, codec.PDU_ABORT) and
+                                  candidate.invoke_id == invoke_id, timeout)
+            if frame is not None:
+                break
         return Answer(frame)
 
     def read_property(self, port, object_type, instance, property_identifier, array_index=None, **routing):

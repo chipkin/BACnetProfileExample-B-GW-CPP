@@ -38,9 +38,9 @@ gateway Annex L.7.2 allows:
   from outside it, over BACnet/IP.
 
 > **Versions:** this document describes **example v2.0.0**, built and
-> verified against **CAS BACnet Stack 6.0.23** (`6.x` @ `e6de4ffd`), at
-> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.2.0**
-> and `wiretest/` at **v0.3.0**. Running the example prints the first three -
+> verified against **CAS BACnet Stack 6.0.23** (`6.x` @ `64b2cfac`), at
+> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.3.0**
+> and `wiretest/` at **v0.5.0**. Running the example prints the first three -
 > if what it prints disagrees with this line, trust the program and check
 > `CHANGELOG.md`.
 
@@ -288,7 +288,7 @@ Expected output (`--mode eo`):
 ```
 BACnet B-GW (Gateway) Example - C++ v2.0.0
 CAS BACnet Stack version: 6.0.23.0
-Common helper (common/) version: 3.2.0
+Common helper (common/) version: 3.3.0
 Mode: eo - GW-EO-B, the slaves' data as objects in the gateway
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1) - Unconfirmed: I-Am
@@ -354,9 +354,10 @@ the record of each one failing when its feature is removed.
 | `failure_mode_test.py` | Kill a slave: eo - Reliability `communication-failure` + FAULT on its three objects (only its), values still read, writes still accepted and delivered after revive; vn - no I-Am for its virtual device. Revive: everything recovers. |
 | `router_test.py` | vn: Who-Is-Router-To-Network gets I-Am-Router-To-Network(100); a ReadProperty routed to DNET 100 reaches a virtual device and comes back with SNET 100. eo (the control): no router answer at all, while the gateway still answers a ReadProperty. |
 
-Last local run (2026-10-14, WSL Ubuntu 22.04, STATIC build of stack `e6de4ffd`):
-eo 24/24, 15/15, 2/2; vn 27/27, 19/19, 10/10 - `ALL WIRE TESTS PASSED`, with the
-two [Known gaps](#known-gaps) reported.
+Last local run (2026-10-15, stack `6.x` @ `64b2cfac`): WSL Ubuntu 22.04, SOURCE
+build - eo 24/24, 15/15, 2/2; vn 27/27, 19/19, 10/10; Windows, STATIC build - the
+same, except router vn 9/9 (its broadcast control needs POSIX capture). `ALL
+WIRE TESTS PASSED` on both, with the two [Known gaps](#known-gaps) reported.
 
 ## Verify by hand
 

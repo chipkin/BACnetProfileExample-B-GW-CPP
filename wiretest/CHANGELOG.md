@@ -3,6 +3,63 @@
 The shared Wiretest Harness of the BACnet profile example series. Vendored into each
 example; `WIRETEST_VERSION` in `__init__.py` names the version.
 
+## [0.5.0] - 2026-10-15
+
+Added for B-BBMD's wire tests (foreign devices and peer BBMDs talking Annex J to the
+example), on top of B-ACDC's 0.4.0; nothing in it is BBMD-specific. Additive: every
+0.4.0 call keeps its meaning.
+
+### Added
+
+- `codec`: every Annex J BVLL message - `bvll()` for any function; builders for
+  Register-Foreign-Device, Read-/Write-Broadcast-Distribution-Table,
+  Read-Foreign-Device-Table, Delete-Foreign-Device-Table-Entry,
+  Distribute-Broadcast-To-Network and Forwarded-NPDU; the BVLC function and
+  BVLC-Result code constants (`BVLC_RESULT_*`, J.2.1.1); `reinitialize_device_request`
+  with `SERVICE_REINITIALIZE_DEVICE` and `REINITIALIZE_COLDSTART` / `_WARMSTART` /
+  `_ACTIVATE_CHANGES`; `context_octet_string`.
+- `codec.Frame`: decodes BVLL-only messages (`ok` True, `has_npdu` False), including
+  4-octet ones such as an empty Read-Foreign-Device-Table-Ack, which 0.4.0 rejected as
+  too short; adds `bvll_data`, `result_code`, `bdt_entries()`, `fdt_entries()` and a
+  Forwarded-NPDU's `originating_mac`; `describe()` shows both. A predicate on
+  `invoke_id`, `pdu_type`, `service` or `network_message` sees `None` for a BVLL-only
+  message, so 0.4.0 tests behave as before.
+- `endpoint.Endpoint`: `ip`, `mac` (the socket's B/IP address) and `clear()`.
+
+### Fixed
+
+- `endpoint.Endpoint` no longer raises on Windows when an earlier send drew an ICMP
+  port-unreachable (`ConnectionResetError` on the next receive); the receive goes on.
+- `peer.SimulatedDevice` no longer stops answering on Windows for the same reason: its
+  receive loop treated `ConnectionResetError` (an `OSError`) as "socket closed" and
+  ended silently.
+
+## [0.4.0] - 2026-10-14
+
+Added for B-ACDC's wire tests (a client that commands a door and reads it back), on top
+of B-GW's 0.3.0; nothing in it is door-specific. Additive: every 0.3.0 call keeps its
+meaning (the `Client` retry is off unless asked for).
+
+### Added
+
+- `client.Client(..., retries=N)`: an unanswered request is sent again with the same
+  invoke id, up to N times (cl. 5.4.4 TimeoutUnsegmented), each retry printing a
+  `[RETRY]` line. Default 0.
+- `codec`: `application_boolean`; `decoded_values` (every application primitive in a
+  value - a Property_List, a whole Priority_Array); `PROPERTY_OUT_OF_SERVICE`,
+  `PROPERTY_PROPERTY_LIST`, `PROPERTY_CURRENT_COMMAND_PRIORITY`,
+  `ERROR_CODE_VALUE_OUT_OF_RANGE`.
+- `process`: `Program.press(keys)` - type menu keys on an example's stdin (POSIX only:
+  common/'s `PollKey()` reads a pipe there, not on Windows).
+
+### Fixed
+
+- `process.Program` starts the example by its absolute path: on Windows a relative
+  `--exe build/Release/X.exe` (forward slashes) was not found by `CreateProcess`.
+
+(B-ACDC first numbered these additions 0.2.0, then 0.3.0, before B-RTR's 0.2.0 and
+B-GW's 0.3.0 were known; neither of those B-ACDC copies was ever published.)
+
 ## [0.3.0] - 2026-10-14
 
 Added for B-GW's wire tests; nothing in it is gateway-specific. Additive: every 0.2.0

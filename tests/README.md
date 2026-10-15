@@ -24,7 +24,9 @@ failed. Each script also runs on its own with `--exe`, `--port` (default
 **Linux/macOS.** One check in `router_test.py` captures what the gateway
 *broadcasts*, with a second socket on its own UDP port. POSIX `SO_REUSEADDR`
 allows that; on Windows `common/` binds with `SO_EXCLUSIVEADDRUSE` on purpose,
-which refuses it.
+which refuses it, so there `router_test.py --mode vn` runs without that
+control (9 checks, not 10) and the KNOWN GAP is always reported. Every other
+check runs on Windows.
 
 A `[KNOWN GAP]` line is a requirement the gateway does not meet yet because of
 a defect outside this example (the stack). It is reported on every run but

@@ -12,6 +12,20 @@ entry here, and must then be re-copied into **every** example in the series.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the folder adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-10-14
+
+### Added
+
+- `KeyCommand::ContactToggle` (`o`), `KeyCommand::ForceOpen` (`f`) and
+  `KeyCommand::BadgePulse` (`p`), read by `PollKey()` on Windows and POSIX.
+  First used by `BACnetProfileExample-B-ACDC-CPP`'s door Simulation (open/shut
+  the simulated door contact, force the door open, a local badge
+  pulse-unlock); the names are generic so any example simulating a contact or
+  a badge reader reuses them. Registered in the series' `docs/menu-keys.md`.
+  Additive: no existing key or symbol changes. `PrintInteractiveCommands()` is
+  unchanged - an example that handles these keys lists them itself after
+  `PrintHelp()`.
+
 ## [3.2.0] - 2026-10-14
 
 ### Fixed

@@ -5,7 +5,7 @@
 Wire Tests drive a running example over BACnet/IP from outside it and fail when the
 example's Profile Function is removed. This package is the part every example shares:
 
-    codec     - BVLC / NPDU (DNET, SNET, network layer messages) / APDU encode and decode
+    codec     - BVLL (incl. BBMD and foreign-device messages) / NPDU / APDU encode and decode
     endpoint  - UDP sockets that send frames and collect replies; broadcast capture
     client    - Client: ReadProperty / WriteProperty with invoke ids, optionally through a router
     process   - start / stop an example binary, read its console
@@ -20,7 +20,7 @@ one example, bump the version, then copy it to every example that vendors it.
 Python 3 standard library only.
 """
 
-WIRETEST_VERSION = "0.3.0"
+WIRETEST_VERSION = "0.5.0"
 
 from . import client, codec, endpoint, peer, process, results  # noqa: E402,F401
 from .client import Answer, Client  # noqa: E402,F401

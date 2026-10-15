@@ -75,6 +75,21 @@ Surface changed (objects removed and renumbered, new devices in `--mode vn`).
 
 ### Changed
 
+- **Stack Pin moved `e6de4ffd` -> `6.x` @ `64b2cfac`** (still reports 6.0.23;
+  carries the customer-build link fix, stack #3850). No call site changed.
+  Neither known gap closed (#3931, #3932 - `TODO.md`).
+- **`Segmentation_Supported` is now `segmented-both`** on the gateway and on
+  every virtual device (was `no-segmentation`): the stack at this pin compiles
+  segmentation into the customer build (#2992) and serves
+  `Max_Segments_Accepted` 16 and `APDU_Segment_Timeout` 5000 ms.
+  `docs/PICS.md` section 5 says so.
+- `common/` 3.3.0 (from `BACnetProfileExample-B-SS-CPP` `b640a81`; adds the
+  `o` / `f` / `p` door keys, unused here) and `wiretest/` 0.5.0 (from
+  `BACnetProfileExample-B-BBMD-CPP`; additive over 0.3.0), both verbatim.
+- `tests/router_test.py` runs on Windows: when the broadcast listener cannot
+  bind (Windows, `SO_EXCLUSIVEADDRUSE`), it skips that control instead of
+  stopping with the gateway still running, which made every later script in
+  `run_wire_tests.py` fail to bind its UDP port.
 - up/down now nudge the simulated Boiler's sensor (Analog Input 1 follows on
   the next poll) instead of setting the Analog Input directly.
 - README (scenario, register map, Simulation note, known gaps), TUTORIAL (the

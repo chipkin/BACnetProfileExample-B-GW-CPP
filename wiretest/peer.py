@@ -79,6 +79,8 @@ class SimulatedDevice:
             for ready_sock in ready:
                 try:
                     data, source = ready_sock.recvfrom(2048)
+                except ConnectionResetError:
+                    continue   # Windows: an ICMP port-unreachable for an earlier reply (see endpoint.py)
                 except OSError:
                     return
                 frame = codec.Frame(data, source)

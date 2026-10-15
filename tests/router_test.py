@@ -58,8 +58,14 @@ def main():
     # What the gateway broadcasts on its own network, read on a second socket on its UDP port
     # (POSIX SO_REUSEADDR - see wiretest.broadcast_listener). Its start-up I-Am is the TX line
     # that names the broadcast address.
+    # Windows refuses the second bind (common/ binds with SO_EXCLUSIVEADDRUSE): run without the
+    # listener there, so only the broadcast checks are skipped and the gateway is still stopped.
     broadcast_ip = wiretest.broadcast_address(gateway.output(), args.port)
-    broadcasts = wiretest.broadcast_listener(broadcast_ip, args.port) if broadcast_ip else None
+    try:
+        broadcasts = wiretest.broadcast_listener(broadcast_ip, args.port) if broadcast_ip else None
+    except OSError as refused:
+        print(f"(no broadcast capture on this platform: {refused})")
+        broadcasts = None
     try:
         answer, was_broadcast = ask(client, args, broadcasts=broadcasts)
         if args.mode == "eo":

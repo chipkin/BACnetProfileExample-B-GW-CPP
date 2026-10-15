@@ -23,7 +23,8 @@ class Program:
         self.label = label
         self.log = tempfile.NamedTemporaryFile(prefix=f"{label}-", suffix=".log", delete=False)
         variables = dict(os.environ, **{name: str(value) for name, value in (environment or {}).items()})
-        self.process = subprocess.Popen([str(exe)] + [str(argument) for argument in arguments],
+        # Absolute: Windows' CreateProcess does not resolve a relative path written with "/".
+        self.process = subprocess.Popen([str(Path(exe).resolve())] + [str(argument) for argument in arguments],
                                         stdin=subprocess.PIPE, stdout=self.log, stderr=subprocess.STDOUT,
                                         env=variables)
 
@@ -44,6 +45,13 @@ class Program:
     def output(self):
         with open(self.log.name, "r", errors="replace") as handle:
             return handle.read()
+
+    def press(self, keys):
+        """Type `keys` on the example's keyboard (its stdin pipe). The examples read keys
+        with common/'s PollKey(), which sees a pipe on Linux/macOS but not on Windows
+        (_kbhit() only reads a console), so this drives an example on POSIX only."""
+        self.process.stdin.write(keys.encode("ascii"))
+        self.process.stdin.flush()
 
     def stop(self):
         if self.process.poll() is None:

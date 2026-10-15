@@ -5,7 +5,10 @@ reported on every Wire Test run as a `[KNOWN GAP]` line (`tests/`), so the day
 one is fixed the test says so (`[GAP CLOSED]`): then turn it into a counted
 check and delete its entry here.
 
-Verified 2026-10-14 against the pinned stack, `6.x` @ `e6de4ffd` (6.0.23).
+Verified 2026-10-15 against the pinned stack, `6.x` @ `64b2cfac` (reports 6.0.23),
+which also carries the customer-build link fix
+([#3850](https://github.com/chipkin/cas-bacnet-stack/issues/3850)) that held the pin at
+`e6de4ffd`. Neither gap below closed at this pin.
 
 ## `--mode vn`: an offline virtual device cannot be made silent (Annex H.2.2.1) - blocked
 
@@ -45,10 +48,3 @@ is right. The same stack defect B-RTR reports for physical routing. Filed as
 `tests/router_test.py --mode vn` reports it; the start-up and `r`-key
 announcements, which `main.cpp` sends itself with an explicit broadcast
 address, are broadcast correctly.
-
-## Stack pin: the `6.x` tip does not link outside a test-tool build
-
-`origin/6.x` @ `4b27bd56` fails to link any customer build
-(`RecordTypedGetDecline` is defined only under `BACNET_STACK_TESTTOOL`) - stack
-issue #3850, fixed on `issues/runbook`, not yet promoted. This example stays on
-`e6de4ffd` until `6.x` contains the fix.

@@ -123,9 +123,17 @@ not listed is rejected. That rejection is part of the profile boundary.
 
 ## 5. Segmentation capability
 
-Segmentation is **not supported** in either direction, on any device
-(`Segmentation_Supported` = `no-segmentation`). `Max_APDU_Length_Accepted` is
-1476 octets, the BACnet/IP maximum.
+Segmentation is **supported in both directions**, by the stack, on every
+device - the gateway and, in `--mode vn`, each virtual device
+(`Segmentation_Supported` = `segmented-both`): at `6.x` @ `64b2cfac` the
+customer build compiles `STACK_OPTION_SEGMENTATION` in (stack #2992), and this
+example keeps the stack's defaults - `Max_Segments_Accepted` 16 and
+`APDU_Segment_Timeout` 5000 ms, all read on the wire. Table 12-13 footnote 1:
+"These properties are required if, and shall be present only if, segmentation
+of any kind is supported" - they are not rows in section 7 because its
+generator lists only unconditionally required properties.
+`Max_APDU_Length_Accepted` is 1476 octets, the BACnet/IP maximum. (At the
+previous pin, `e6de4ffd`, every device answered `no-segmentation`.)
 
 ## 6. Standard object types supported
 
@@ -205,7 +213,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Protocol_Object_Types_Supported | BACnetObjectTypesSupported | stack | no |
 | Object_List | BACnetARRAY[N] of BACnetObjectIdentifier | stack | no |
 | Max_APDU_Length_Accepted | Unsigned | stack default, accepted (`CAS_BACNET_DEVICE_DEFAULT_MAX_APDU_LENGTH_ACCEPTED`) | no |
-| Segmentation_Supported | BACnetSegmentation | stack default, accepted (`BACnetSegmentation::noSegmentation`) | no |
+| Segmentation_Supported | BACnetSegmentation | stack default, accepted (`BACnetSegmentation::segmentedBoth` with `STACK_OPTION_SEGME) | no |
 | APDU_Timeout | Unsigned | stack default, accepted (`CAS_BACNET_DEVICE_DEFAULT_APDU_TIMEOUT`) | no |
 | Number_Of_APDU_Retries | Unsigned | stack default, accepted (`CAS_BACNET_DEVICE_DEFAULT_NUMBER_OF_APDU_RETRIES`) | no |
 | Device_Address_Binding | BACnetLIST of BACnetAddressBinding | stack | no |
@@ -316,7 +324,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Protocol_Object_Types_Supported | BACnetObjectTypesSupported | stack | no |
 | Object_List | BACnetARRAY[N] of BACnetObjectIdentifier | stack | no |
 | Max_APDU_Length_Accepted | Unsigned | stack default, accepted (`CAS_BACNET_DEVICE_DEFAULT_MAX_APDU_LENGTH_ACCEPTED`) | no |
-| Segmentation_Supported | BACnetSegmentation | stack default, accepted (`BACnetSegmentation::noSegmentation`) | no |
+| Segmentation_Supported | BACnetSegmentation | stack default, accepted (`BACnetSegmentation::segmentedBoth` with `STACK_OPTION_SEGME) | no |
 | APDU_Timeout | Unsigned | stack default, accepted (`CAS_BACNET_DEVICE_DEFAULT_APDU_TIMEOUT`) | no |
 | Number_Of_APDU_Retries | Unsigned | stack default, accepted (`CAS_BACNET_DEVICE_DEFAULT_NUMBER_OF_APDU_RETRIES`) | no |
 | Device_Address_Binding | BACnetLIST of BACnetAddressBinding | stack | no |

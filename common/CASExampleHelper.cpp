@@ -2073,6 +2073,9 @@ KeyCommand PollKey() {
     if (c == 'r' || c == 'R') return KeyCommand::RouterAnnounce;
     if (c == 'm' || c == 'M') return KeyCommand::Metrics;
     if (c == 'k' || c == 'K') return KeyCommand::SimulatedPeerToggle;
+    if (c == 'o' || c == 'O') return KeyCommand::ContactToggle;
+    if (c == 'f' || c == 'F') return KeyCommand::ForceOpen;
+    if (c == 'p' || c == 'P') return KeyCommand::BadgePulse;
     return KeyCommand::None;
 #else
     EnableRawInput();
@@ -2094,6 +2097,9 @@ KeyCommand PollKey() {
     if (buf[0] == 'r' || buf[0] == 'R') return KeyCommand::RouterAnnounce;
     if (buf[0] == 'm' || buf[0] == 'M') return KeyCommand::Metrics;
     if (buf[0] == 'k' || buf[0] == 'K') return KeyCommand::SimulatedPeerToggle;
+    if (buf[0] == 'o' || buf[0] == 'O') return KeyCommand::ContactToggle;
+    if (buf[0] == 'f' || buf[0] == 'F') return KeyCommand::ForceOpen;
+    if (buf[0] == 'p' || buf[0] == 'P') return KeyCommand::BadgePulse;
     return KeyCommand::None;
 #endif
 }

@@ -4,7 +4,7 @@
 import socket
 import time
 
-from .codec import Frame
+from .codec import Frame, mac
 
 
 class Endpoint:
@@ -16,7 +16,17 @@ class Endpoint:
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.bind((bind_ip, port))
-        self.port = self.sock.getsockname()[1]
+        self.ip, self.port = self.sock.getsockname()
+        self.frames = []
+
+    @property
+    def mac(self):
+        """This socket's 6-octet B/IP address (Annex J.1.2) - meaningful when bound to a real address."""
+        return mac(self.ip, self.port)
+
+    def clear(self):
+        """Forget every frame kept so far (and any already queued), so the next wait_for sees only new ones."""
+        self.collect(0.05)
         self.frames = []
 
     def send(self, frame, port, ip="127.0.0.1"):
@@ -28,6 +38,10 @@ class Endpoint:
             data, source = self.sock.recvfrom(2048)
         except socket.timeout:
             return False
+        except ConnectionResetError:
+            # Windows reports an ICMP port-unreachable for an earlier send as an error
+            # on the NEXT receive (WSAECONNRESET). It says nothing about this datagram.
+            return True
         self.frames.append(Frame(data, source))
         return True
 
