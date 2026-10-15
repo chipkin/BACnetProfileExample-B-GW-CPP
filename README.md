@@ -11,6 +11,14 @@ device to a BACnet internetwork. It listens on **BACnet/IP (UDP 47808)**,
 answers **ReadProperty** and **WriteProperty** requests, and is discoverable
 via **Who-Is / I-Am**.
 
+> **What this example does not do yet.** No foreign protocol is simulated:
+> there is no non-BACnet device or bus behind the gateway. The virtual
+> device's one value (Analog Input 1 `Present_Value`) is a **constant 19.0**
+> that nothing ever changes - so the gateway shows the BACnet side of a
+> gateway (a virtual device on a virtual network) but not the gateway's job of
+> carrying data from a foreign system. That is pending the example's
+> functional rework.
+
 **[Download a prebuilt binary](https://github.com/chipkin/BACnetProfileExample-B-GW-CPP/releases)**
 (Windows and Linux x64) - or build it yourself, see [Build](#build) below.
 
@@ -21,9 +29,9 @@ via **Who-Is / I-Am**.
   Statement: every object on both devices, every property, and who answers
   it.
 
-> **Versions:** this document describes **example v1.0.0**, built and
-> verified against **CAS BACnet Stack 6.0.21** (`6.x` @ `abd4cee1`), at
-> **Protocol_Revision 24**, with the vendored `common/` helper at **v2.5.0**.
+> **Versions:** this document describes **example v1.0.2**, built and
+> verified against **CAS BACnet Stack 6.0.23** (`6.x` @ `e6de4ffd`), at
+> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.0.0**.
 > Running the example prints all three - if what it prints disagrees with
 > this line, trust the program and check `CHANGELOG.md`.
 
@@ -118,14 +126,27 @@ which is the point of a profile example.
 | DM-DDB-B | Device Management - Dynamic Device Binding - B | ✅ |
 | DM-DOB-B | Device Management - Dynamic Object Binding - B | ✅ |
 | DM-DCC-B | Device Management - Device Communication Control - B | ✅ |
-| GW-VN-B | Gateway - Virtual Network - B | ✅ |
+| GW-VN-B | Gateway - Virtual Network - B | ⚠️ unverified (needs NM-RC-B) |
+| NM-RC-B | Network Management - Router Configuration - B | ⚠️ stack-provided, unverified |
 
-**DS-WP-B, DM-DCC-B and GW-VN-B apply to the GATEWAY only** - the virtual
-device answers DS-RP-B, DM-DDB-B and DM-DOB-B on itself, but does not accept
-writes or DeviceCommunicationControl. This example does not implement
-NM-RC-B or DM-LM-B (physical inter-datalink routing - that is B-RTR's
-F-ROUTER/F-MULTIPORT, a different profile), alarming, scheduling, or
-trending.
+**DS-WP-B, DM-DCC-B, GW-VN-B and NM-RC-B apply to the GATEWAY only** - the
+virtual device answers DS-RP-B, DM-DDB-B and DM-DOB-B on itself, but does not
+accept writes or DeviceCommunicationControl.
+
+Annex K.7.1 says a GW-VN-B device "appears to the BACnet network as a router
+as described in Annex H" and "shall, at a minimum, support NM-RC-B and
+DS-RP-B". So NM-RC-B is **not optional for this profile**. The virtual-network
+routing is the stack's: at this Stack Pin its network layer answers a
+Who-Is-Router-To-Network naming virtual network 100 with
+I-Am-Router-To-Network (`BACnetNetworkLayer::ProcessWhoIsRouterToNetwork`).
+That was **read from the stack source, not verified on the wire** against this
+example, and the rest of NM-RC-B (cl. K.6.4's other network-layer messages) has
+not been checked either - so NM-RC-B, and with it GW-VN-B, are unverified
+here.
+
+This example does not implement DM-LM-B or physical inter-datalink routing
+(that is B-RTR's F-ROUTER/F-MULTIPORT, a different profile), alarming,
+scheduling, or trending.
 
 ### Services (executed / B-side)
 
@@ -239,9 +260,9 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-GW (Gateway) Example - C++ v1.0.0
-CAS BACnet Stack version: 6.0.21.0
-Common helper (common/) version: 2.5.0
+BACnet B-GW (Gateway) Example - C++ v1.0.2
+CAS BACnet Stack version: 6.0.23.0
+Common helper (common/) version: 3.0.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
 TX 27 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
@@ -332,7 +353,7 @@ For a property-by-property review against the conformance statement, see
 ## The BACnet profile example series
 
 <!-- PROFILE-TABLE:BEGIN (generated from cas-bacnet-stack-examples/docs/profile-table.md - do not edit here) -->
-The CAS BACnet Stack supports every standardized device profile in ASHRAE 135-2024 Annex L, and there is one example repository per profile. Pick the profile your device claims, then the language you build in. "Ask" means the example hasn't been built yet for that language - [contact Chipkin](https://store.chipkin.com/contact-us) if you need one.
+There is one example repository per standardized device profile in ASHRAE 135-2024 Annex L. An example marked ⛔ is blocked: the stack cannot yet perform that profile's function through its customer interface, and the example's README says what it does today. Pick the profile your device claims, then the language you build in. "Ask" means the example hasn't been built yet for that language - [contact Chipkin](https://store.chipkin.com/contact-us) if you need one.
 
 ### Controllers (Annex L.4)
 
@@ -385,10 +406,10 @@ The CAS BACnet Stack supports every standardized device profile in ASHRAE 135-20
 |---|---|---|---|---|---|---|
 | **B-BBMD** Broadcast Management Device | [B-BBMD-CPP](https://github.com/chipkin/BACnetProfileExample-B-BBMD-CPP) | Ask | Ask | Ask | Ask | Ask |
 | **B-ACDC** Access Control Door Controller | [B-ACDC-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACDC-CPP) | Ask | Ask | Ask | Ask | Ask |
-| **B-ACCR** Access Control Credential Reader | [B-ACCR-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACCR-CPP) | Ask | Ask | Ask | Ask | Ask |
+| **B-ACCR** Access Control Credential Reader | [B-ACCR-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACCR-CPP) ⛔ blocked: credential format not reportable (no stack issue yet) | Ask | Ask | Ask | Ask | Ask |
 | **B-RTR** Router | [B-RTR-CPP](https://github.com/chipkin/BACnetProfileExample-B-RTR-CPP) | Ask | Ask | Ask | Ask | Ask |
 | **B-GW** Gateway | [B-GW-CPP](https://github.com/chipkin/BACnetProfileExample-B-GW-CPP) | Ask | Ask | Ask | Ask | Ask |
-| **B-DAP** Device Address Proxy | [B-DAP-CPP](https://github.com/chipkin/BACnetProfileExample-B-DAP-CPP) | Ask | Ask | Ask | Ask | Ask |
+| **B-DAP** Device Address Proxy | [B-DAP-CPP](https://github.com/chipkin/BACnetProfileExample-B-DAP-CPP) ⛔ blocked on [stack #2032](https://github.com/chipkin/cas-bacnet-stack/issues/2032) | Ask | Ask | Ask | Ask | Ask |
 | **B-SCHUB** BACnet/SC Hub | [B-SCHUB-CPP](https://github.com/chipkin/BACnetProfileExample-B-SCHUB-CPP) | Ask | Ask | Ask | Ask | Ask |
 | **B-GENERAL** General device (Annex L.8) | *(satisfied by every example above)* | — | — | — | — | — |
 
@@ -416,7 +437,7 @@ Client-side profiles.
 | **B-EWS** Elevator Workstation | planned | — | — | — | — | — |
 | **B-AEWS** Advanced Elevator Workstation | planned | — | — | — | — | — |
 
-🚧 = in progress. "Ask" = not yet built for that language; contact Chipkin if you need it. Profile definitions: ANSI/ASHRAE 135-2024 Annex L. BIBB definitions: Annex K. Get the stack: <https://store.chipkin.com/services/stacks/bacnet-stack>.
+🚧 = in progress. ⛔ = Blocked Example (blocked on the named stack gap). "Ask" = not yet built for that language; contact Chipkin if you need it. Profile definitions: ANSI/ASHRAE 135-2024 Annex L. BIBB definitions: Annex K. Get the stack: <https://store.chipkin.com/services/stacks/bacnet-stack>.
 <!-- PROFILE-TABLE:END -->
 
 ## References

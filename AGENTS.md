@@ -78,7 +78,7 @@ virtual device.
   instance + 100 (`docs/colour-table.md`) - **fixed**, not moved by
   `--deviceID` (that flag renumbers only the gateway itself).
 - Implement **only** the services and objects the B-GW profile requires - but
-  expose **every required property** of each object for Protocol_Revision 24,
+  expose **every required property** of each object for Protocol_Revision 30,
   on BOTH devices.
 - Outputs are **commandable**: store the 16-slot `Priority_Array` +
   `Relinquish_Default` in the app (the `Commandable` struct); let the stack
@@ -99,8 +99,12 @@ virtual device.
   instance then behaves like any other `deviceInstance` argument to
   `BACnetStack_AddObject`/`SetServiceEnabled`/`SetPropertyEnabled`.
 - **Do not add physical routing or a second physical Network Port** - that is
-  B-RTR's profile (F-ROUTER/F-MULTIPORT), not this one's. This example claims
-  neither NM-RC-B nor DM-LM-B.
+  B-RTR's profile (F-ROUTER/F-MULTIPORT), not this one's. This example does
+  not claim DM-LM-B. It cannot disclaim NM-RC-B: Annex K.7.1 makes NM-RC-B
+  mandatory for GW-VN-B. The stack's virtual router provides it, unverified on
+  the wire for this example - do not write that it is unsupported.
+- **Say plainly what is not simulated**: the virtual device's value is a
+  constant and no foreign protocol sits behind the gateway.
 - Every `GetProperty*` callback ends with `uint32_t* errorCode`. Leave it alone
   on a catch-all decline (the stack's decline-and-fabricate default answers
   required properties this app does not serve); set it only where this device
@@ -125,7 +129,7 @@ There are no unit tests; verification is behavioural:
    **Who-Is** and confirm **I-Am** from BOTH device instances (the gateway and
    the virtual device).
 3. **ReadProperty** every required property of every object on BOTH devices
-   and confirm the values; confirm `Protocol_Revision` is 24 on both; confirm
+   and confirm the values; confirm `Protocol_Revision` is 30 on both; confirm
    each device's `Object_List` is separate and correct.
 4. **WriteProperty** a gateway commandable output's `Present_Value` at a
    priority, re-read it, then write NULL to relinquish.

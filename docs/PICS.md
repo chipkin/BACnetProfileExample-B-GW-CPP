@@ -25,10 +25,10 @@ see [README.md](../README.md).
 | **Vendor Identifier** | 389 |
 | **Product Name** | CAS BACnet Stack Example - B-GW |
 | **Product Model Number** | CAS BACnet Stack Example - B-GW |
-| **Application Software Version** | 1.0.0 |
-| **Firmware Revision** | 1.0.0 |
+| **Application Software Version** | 1.0.2 (`APP_VERSION` in `main.cpp`) |
+| **Firmware Revision** | the linked CAS BACnet Stack version (6.0.23.0 at this Stack Pin) |
 | **BACnet Protocol Version** | 1 |
-| **BACnet Protocol Revision** | 24 |
+| **BACnet Protocol Revision** | 30 |
 
 **Product Description:** a BACnet/IP gateway built on the CAS BACnet Stack. It
 presents a real GATEWAY device (three read-only sensor objects, three
@@ -64,13 +64,24 @@ satisfies **B-GENERAL** (Annex L.8); that is subsumption, not a second claim.
 | DM-DDB-B | Device Management - Dynamic Device Binding - B |
 | DM-DOB-B | Device Management - Dynamic Object Binding - B |
 | DM-DCC-B | Device Management - Device Communication Control - B |
-| GW-VN-B | Gateway - Virtual Network - B |
+| GW-VN-B | Gateway - Virtual Network - B (unverified - see below) |
+| NM-RC-B | Network Management - Router Configuration - B (stack-provided, unverified - see below) |
+
+Annex K.7.1 says a GW-VN-B device "appears to the BACnet network as a router
+as described in Annex H" and "shall, at a minimum, support NM-RC-B and
+DS-RP-B". So NM-RC-B is **not optional for this profile**. The virtual-network
+routing is the stack's: at this Stack Pin its network layer answers a
+Who-Is-Router-To-Network naming virtual network 100 with
+I-Am-Router-To-Network (`BACnetNetworkLayer::ProcessWhoIsRouterToNetwork`).
+That was **read from the stack source, not verified on the wire** against this
+example, and the rest of NM-RC-B (cl. K.6.4's other network-layer messages) has
+not been checked either - so NM-RC-B, and with it GW-VN-B, are unverified
+here.
 
 No other BIBBs are supported. In particular this device does **not** support
 DS-RPM-B (ReadPropertyMultiple), DS-COV-B, any alarm and event (AE-*) BIBB,
-scheduling (SCHED-*), trending (T-*), or NM-RC-B / DM-LM-B (physical
-inter-datalink routing - that is B-RTR's F-ROUTER/F-MULTIPORT, a different
-profile).
+scheduling (SCHED-*), trending (T-*), or DM-LM-B / physical inter-datalink
+routing (that is B-RTR's F-ROUTER/F-MULTIPORT, a different profile).
 
 **DS-WP-B, DM-DCC-B and GW-VN-B apply to the GATEWAY only.** The virtual
 device answers DS-RP-B, DM-DDB-B and DM-DOB-B on itself, but has no writable
