@@ -33,14 +33,15 @@ I-Have requests on behalf of that device."
   reports `[KNOWN GAP] slave offline: virtual device 389121 stays silent to a
   ReadProperty (Annex H.2.2.1)`.
 
-Needs a stack export - a stack issue has been drafted for the owner (not filed).
+Needs a stack export - filed as [#3932](https://github.com/chipkin/cas-bacnet-stack/issues/3932) (related: [#2873](https://github.com/chipkin/cas-bacnet-stack/issues/2873)).
 
 ## I-Am-Router-To-Network answering Who-Is-Router-To-Network is unicast (cl. 6.4.2)
 
 Cl. 6.4.2: I-Am-Router-To-Network "shall always be transmitted with a broadcast
 MAC address". The stack's virtual router answers Who-Is-Router-To-Network with
 an I-Am-Router-To-Network sent to the requester only. The content (network 100)
-is right. The same stack defect B-RTR reports for physical routing.
+is right. The same stack defect B-RTR reports for physical routing. Filed as
+[#3931](https://github.com/chipkin/cas-bacnet-stack/issues/3931).
 `tests/router_test.py --mode vn` reports it; the start-up and `r`-key
 announcements, which `main.cpp` sends itself with an explicit broadcast
 address, are broadcast correctly.
