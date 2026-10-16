@@ -14,6 +14,18 @@ Surface changed (objects removed and renumbered, new devices in `--mode vn`).
 
 ### Added
 
+- **`common/` 3.4.0, `wiretest/` 0.6.0, discovery Wire Test** (2026-10-15).
+  `common/` 3.4.0 (from `BACnetProfileExample-B-SS-CPP` `5d78299`, verbatim)
+  sends a broadcast the stack addresses to this socket's own address to the
+  subnet broadcast; no B-GW check changed result. `wiretest/` 0.6.0 (from
+  `BACnetProfileExample-B-LS-CPP`, verbatim); no test needed a change. New
+  `tests/discovery_test.py`, the series' discovery Wire Test from B-SS-CPP (Who-Is
+  with one visible `[RETRY]`, then every property of every object of the
+  gateway's own Device reads as a value), in `run_wire_tests.py` in both modes,
+  so the Linux CI step runs it. Wire Tests 2026-10-15, `--port 47960`, Linux
+  (WSL2) and Windows static: eo discovery 17/17, mapping 24/24, failure mode
+  15/15, router 2/2; vn discovery 9/9, mapping 27/27, failure mode 19/19 (1 known
+  gap), router 10/10 on Linux / 9/9 on Windows (1 known gap); 0 `[RETRY]`.
 - **A simulated foreign bus behind one seam.** `ForeignBus.h` is the
   asynchronous interface between the gateway and the non-BACnet network
   (`StartRead` / `StartWrite` / `CheckTransaction`); `simulation/

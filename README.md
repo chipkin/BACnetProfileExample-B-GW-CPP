@@ -39,8 +39,8 @@ gateway Annex L.7.2 allows:
 
 > **Versions:** this document describes **example v2.0.0**, built and
 > verified against **CAS BACnet Stack 6.0.23** (`6.x` @ `64b2cfac`), at
-> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.3.0**
-> and `wiretest/` at **v0.5.0**. Running the example prints the first three -
+> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.4.0**
+> and `wiretest/` at **v0.6.0**. Running the example prints the first three -
 > if what it prints disagrees with this line, trust the program and check
 > `CHANGELOG.md`.
 
@@ -288,7 +288,7 @@ Expected output (`--mode eo`):
 ```
 BACnet B-GW (Gateway) Example - C++ v2.0.0
 CAS BACnet Stack version: 6.0.23.0
-Common helper (common/) version: 3.3.0
+Common helper (common/) version: 3.4.0
 Mode: eo - GW-EO-B, the slaves' data as objects in the gateway
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1) - Unconfirmed: I-Am
@@ -350,13 +350,14 @@ the record of each one failing when its feature is removed.
 
 | Script | What it proves |
 |---|---|
+| `discovery_test.py` | Discovery the way a client does it: Who-Is gets the gateway's I-Am, and every property of every object of the gateway's own Device (eo: 11 objects; vn: 3 - the slaves' virtual devices are walked by `mapping_test.py`) reads as a value. |
 | `mapping_test.py` | The BACnet Surface is exactly the mapped objects (Object_List sizes); Analog Input follows its input register; WriteProperty to Analog Output reaches the holding register at the winning priority; relinquishing every slot falls back to Relinquish_Default; a value the register cannot hold is refused; Binary Output reaches the coil; all 16 Priority_Array entries. |
 | `failure_mode_test.py` | Kill a slave: eo - Reliability `communication-failure` + FAULT on its three objects (only its), values still read, writes still accepted and delivered after revive; vn - no I-Am for its virtual device. Revive: everything recovers. |
 | `router_test.py` | vn: Who-Is-Router-To-Network gets I-Am-Router-To-Network(100); a ReadProperty routed to DNET 100 reaches a virtual device and comes back with SNET 100. eo (the control): no router answer at all, while the gateway still answers a ReadProperty. |
 
-Last local run (2026-10-15, stack `6.x` @ `64b2cfac`): WSL Ubuntu 22.04, SOURCE
-build - eo 24/24, 15/15, 2/2; vn 27/27, 19/19, 10/10; Windows, STATIC build - the
-same, except router vn 9/9 (its broadcast control needs POSIX capture). `ALL
+Last local run (2026-10-15, stack `6.x` @ `64b2cfac`, `common/` 3.4.0, `wiretest/`
+0.6.0): WSL Ubuntu 22.04, SOURCE build - eo 17/17, 24/24, 15/15, 2/2; vn 9/9, 27/27,
+19/19, 10/10; Windows, STATIC build - the same, except router vn 9/9 (its broadcast control needs POSIX capture). `ALL
 WIRE TESTS PASSED` on both, with the two [Known gaps](#known-gaps) reported.
 
 ## Verify by hand

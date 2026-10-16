@@ -15,7 +15,7 @@ from pathlib import Path
 import gw_setup as setup
 
 TESTS = Path(__file__).resolve().parent
-SCRIPTS = ["mapping_test.py", "failure_mode_test.py", "router_test.py"]
+SCRIPTS = ["discovery_test.py", "mapping_test.py", "failure_mode_test.py", "router_test.py"]
 MODES = ["eo", "vn"]
 
 

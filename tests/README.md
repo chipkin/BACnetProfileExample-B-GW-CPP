@@ -16,7 +16,7 @@ Build the gateway (README "Build"), then from the repository root:
 python3 tests/run_wire_tests.py --exe build/BACnetExampleBGW
 ```
 
-It runs the three scripts below once with `--mode eo` and once with
+It runs the four scripts below once with `--mode eo` and once with
 `--mode vn` and ends with `ALL WIRE TESTS PASSED` (exit 0) or the runs that
 failed. Each script also runs on its own with `--exe`, `--port` (default
 47890) and `--mode eo|vn`.
@@ -55,6 +55,22 @@ In `--mode vn` the tests learn each virtual device's address the way any
 client does - from the I-Am it answers a Who-Is (DNET 65535) with: SNET 100,
 SADR = its address - and then read and write it through the gateway with
 DNET 100 / DADR.
+
+## `discovery_test.py` - discovery, the way a client does it
+
+The series' discovery Wire Test (from `BACnetProfileExample-B-SS-CPP`), on the
+gateway started as the other scripts start it: a unicast Who-Is gets the I-Am
+of Device 389019 (sent once more, with a visible `[RETRY]` line, if no I-Am
+comes back in 3 s - Who-Is is unconfirmed and the gateway's socket can drop a
+datagram on Windows); Device `Object_List` names exactly the objects `main.cpp`
+creates (the control) - `--mode eo` 11 (the Device, Network Port 1 and each
+slave's Analog Input, Analog Output and Binary Output), `--mode vn` 3 (the
+Device and Network Ports 1 and 2); then every property in every object's
+`Property_List`, plus the four cl. 12.1.1.4.1 leaves out, reads as a value.
+Network Port 1 `IP_DNS_Server`, `FD_BBMD_Address` and `FD_Subscription_Lifetime`
+are checked by name (B-SS-CPP #20-#22). Only the gateway's own Device is walked:
+in `--mode vn` the slaves' virtual devices 389119-389121 are separate devices,
+read by `mapping_test.py`.
 
 ## `mapping_test.py` - the Profile Function (GW-EO-B / GW-VN-B, DS-RP-B, DS-WP-B)
 
